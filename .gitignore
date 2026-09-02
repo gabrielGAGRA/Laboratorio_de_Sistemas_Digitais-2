@@ -1,0 +1,8 @@
+local/
+
+.qar
+*.zip
+
+.env
+venv
+.venv
