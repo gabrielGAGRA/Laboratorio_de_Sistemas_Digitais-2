@@ -1,9 +1,9 @@
 ---
+trigger: model_decision
 description: >
   Use when writing, running, or debugging Verilog testbenches,
   simulation commands, and stimulus generation.
 globs: tb/**/*.v,**/*_tb.v,**/tb_*.v
-alwaysApply: false
 ---
 
 # Testbenches & Simulation
