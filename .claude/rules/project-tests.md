@@ -1,7 +1,8 @@
 ---
-trigger: model_decision
 description: Use when writing or editing tests - test commands, TDD self checking, and how to run.
-globs: Laboratórios/**/tb_*.v,Laboratórios/**/*_tb.v
+paths:
+  - "Laboratórios/**/tb_*.v"
+  - "Laboratórios/**/*_tb.v"
 ---
 
 # Testbenches & Simulation

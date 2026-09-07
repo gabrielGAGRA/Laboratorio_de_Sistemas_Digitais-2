@@ -97,6 +97,6 @@ initial begin
 end
 ```
 Then view with:
-```powershell
+```bash
 gtkwave waveform.vcd
 ```
