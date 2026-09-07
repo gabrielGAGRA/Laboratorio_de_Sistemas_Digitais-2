@@ -1,3 +1,4 @@
+`default_nettype none
 
 /*---------------Laboratorio Digital-------------------------------------
  * Arquivo   : contador_m.v
@@ -14,41 +15,39 @@
  *-----------------------------------------------------------------------
  */
 
-module contador_m #(parameter M=100, N=7)
-  (
-    input  wire          clock,
-    input  wire          zera_as,
-    input  wire          zera_s,
-    input  wire          conta,
-    output reg  [N-1:0]  Q,
-    output reg           fim,
-    output reg           meio
-  );
+module contador_m #(
+    parameter M = 100,
+    parameter N = 7
+) (
+    input  wire         clock,
+    input  wire         zera_as,
+    input  wire         zera_s,
+    input  wire         conta,
+    output reg  [N-1:0] Q,
+    output wire         fim,
+    output wire         meio
+);
 
-  always @(posedge clock or posedge zera_as) begin
-    if (zera_as) begin
-      Q <= 0;
-    end else if (clock) begin
-      if (zera_s) begin
-        Q <= 0;
-      end else if (conta) begin
-        if (Q == M-1) begin
-          Q <= 0;
+    always @(posedge clock or posedge zera_as) begin
+        if (zera_as) begin
+            Q <= {N{1'b0}};
         end else begin
-          // Q <= Q + 1;
-          Q <= Q + 1'b1;
+            if (zera_s) begin
+                Q <= {N{1'b0}};
+            end else if (conta) begin
+                if (Q == M - 1) begin
+                    Q <= {N{1'b0}};
+                end else begin
+                    Q <= Q + 1'b1;
+                end
+            end
         end
-      end
     end
-  end
 
-  // Saidas
-  always @ (Q)
-      if (Q == M-1)   fim = 1;
-      else            fim = 0;
-
-  always @ (Q)
-      if (Q == M/2-1) meio = 1;
-      else            meio = 0;
+    // Saidas
+    assign fim  = (Q == M - 1) ? 1'b1 : 1'b0;
+    assign meio = (Q == (M/2) - 1) ? 1'b1 : 1'b0;
 
 endmodule
+
+`default_nettype wire

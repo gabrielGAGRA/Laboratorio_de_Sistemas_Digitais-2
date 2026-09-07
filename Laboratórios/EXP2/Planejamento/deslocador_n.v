@@ -1,7 +1,9 @@
+`default_nettype none
+
 /* ------------------------------------------------------------------
  * Arquivo   : deslocador_n.vhd
  * ------------------------------------------------------------------
- * Descricao : deslocador  
+ * Descricao : deslocador de n bits para transmissao serial
  *             > parametro N: numero de bits
  *
  * ------------------------------------------------------------------
@@ -11,35 +13,35 @@
  *     27/08/2024  3.0     Edson Midorikawa  conversão para Verilog
  * ------------------------------------------------------------------
  */
- 
+
 module deslocador_n #(
     parameter N = 4
 ) (
-    input wire         clock,
-    input wire         reset,
-    input wire         carrega,
-    input wire         desloca,
-    input wire         entrada_serial,
-    input wire [N-1:0] dados,
-    output     [N-1:0] saida
+    input  wire         clock,
+    input  wire         reset,
+    input  wire         carrega,
+    input  wire         desloca,
+    input  wire         entrada_serial,
+    input  wire [N-1:0] dados,
+    output wire [N-1:0] saida
 );
 
-    reg [N-1:0] IQ;
+    reg [N-1:0] dados_q;
 
-    always @(posedge clock, posedge reset) begin
+    always @(posedge clock or posedge reset) begin
         if (reset) begin
-            IQ <= {N{1'b1}}; // Inicializa com todos os bits em '1'
+            dados_q <= {N{1'b1}}; // Inicializa com todos os bits em '1' (repouso)
         end else begin
             if (carrega) begin
-                IQ <= dados;
+                dados_q <= dados;
             end else if (desloca) begin
-                IQ <= {entrada_serial, IQ[N-1:1]}; // Deslocamento à direita
-            end else begin
-                IQ <= IQ;    // Mantém o valor atual
+                dados_q <= {entrada_serial, dados_q[N-1:1]}; // Deslocamento a direita
             end
         end
     end
 
-    assign saida = IQ;
+    assign saida = dados_q;
 
 endmodule
+
+`default_nettype wire

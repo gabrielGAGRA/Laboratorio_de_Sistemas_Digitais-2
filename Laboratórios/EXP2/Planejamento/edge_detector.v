@@ -1,3 +1,5 @@
+`default_nettype none
+
 /* ------------------------------------------------------------------------
  *  Arquivo   : edge_detector.v
  * ------------------------------------------------------------------------
@@ -15,27 +17,29 @@
  *      26/01/2024  1.0     Edson Midorikawa  versao em Verilog
  * ------------------------------------------------------------------------
  */
- 
+
 module edge_detector (
-    input  clock,
-    input  reset,
-    input  sinal,
-    output pulso
+    input  wire clock,
+    input  wire reset,
+    input  wire sinal,
+    output wire pulso
 );
 
-    reg reg0;
-    reg reg1;
+    reg sinal_q;
+    reg sinal_dly_q;
 
     always @(posedge clock or posedge reset) begin
         if (reset) begin
-            reg0 <= 1'b0;
-            reg1 <= 1'b0;
-        end else if (clock) begin
-            reg0 <= sinal;
-            reg1 <= reg0;
+            sinal_q     <= 1'b0;
+            sinal_dly_q <= 1'b0;
+        end else begin
+            sinal_q     <= sinal;
+            sinal_dly_q <= sinal_q;
         end
     end
 
-    assign pulso = ~reg1 & reg0;
+    assign pulso = ~sinal_dly_q & sinal_q;
 
 endmodule
+
+`default_nettype wire
