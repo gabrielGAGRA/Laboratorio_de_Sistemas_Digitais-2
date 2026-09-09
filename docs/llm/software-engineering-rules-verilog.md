@@ -1,18 +1,17 @@
 # Verilog-2001 RTL Engineering Rules
 
-Synthesizable Verilog-2001 (IEEE Std 1364-2001) standards for Intel Cyclone V FPGAs synthesized with Intel Quartus Prime Version 20.1.1 Lite Edition. Targets deterministic FPGA synthesis, M10K block memory inference, lint cleanliness, and timing closure.
+Synthesizable Verilog-2001 (IEEE Std 1364-2001) standards for Intel Cyclone V FPGAs synthesized with Intel Quartus Prime Version 20.1.1 Lite Edition.
 
 ---
-
 ## Editing this Doc
 
-Objective syntax, naming patterns, compiler directives, and banned language constructs are automated by `scripts/lint_verilog.py`. Use this document for architectural and semantic decisions that a linter or compiler cannot enforce reliably. Automate what is objective; document what needs microarchitectural judgment, rationale, or an exception process.
+- Objective syntax, naming patterns, compiler directives, and banned language constructs are automated by `scripts/lint_verilog.py`. Use this document for architectural and semantic decisions that a linter or compiler cannot enforce reliably. 
+- Automate what is objective; document what needs microarchitectural judgment, rationale, or an exception process.
 
 ### Modal verbs
 - **NEVER / ALWAYS** — hard constraints; hardware malfunction, simulation-synthesis mismatch, or synthesis failure risk.
 - **Prefer / Avoid** — default patterns when both work; follow unless timing closure, routing congestion, or FPGA resource limits demand otherwise.
-
-*Why*: add a brief *Why* only when a rule deliberately counters a common online tutorial default or needs FPGA microarchitectural rationale.
+- *Why*: add a brief *Why* only when a rule deliberately counters a common online tutorial default or needs FPGA microarchitectural rationale.
 
 ---
 
@@ -21,7 +20,6 @@ Objective syntax, naming patterns, compiler directives, and banned language cons
 - **Extensions & Ownership**: `.v` for synthesizable modules; `.vh` for header files. Exactly one module per file matching the file basename.
 - **Module & instance names**: `snake_case` for modules; instances MUST prefix with `u_` (submodules) or `u_cell_` (primitives).
 - **Clocks & resets**: `clock` or `clk`; internal module reset MUST be active-high `reset`. Board-level physical active-low pushbuttons/signals MUST end in `_n` (e.g., `reset_n`, `key_n`) and MUST be inverted at the top-level chip wrapper (`wire reset = ~reset_n;`).
-  - *Why:* Internal active-high resets map directly to Cyclone V ALM clear registers (`aclr`/`sclr`) and keep submodules reusable and bug-free without inconsistent polarities.
 - **Register separation**: Flop output MUST use `_q` or `_reg`; combinational next-state lookahead MUST use `_d` or `_next`.
 - **Constants & Encodings**: `SCREAMING_SNAKE_CASE` for `parameter` and `localparam`. State encodings use `localparam [WIDTH-1:0] STATE_NAME = ...;`. NEVER use `parameter` for FSM states.
 
@@ -29,8 +27,7 @@ Objective syntax, naming patterns, compiler directives, and banned language cons
 
 ## 2. Module Boundaries & Formatting
 
-- **Compiler directive**: ALWAYS declare `` `default_nettype none `` at the top of every file. Restore with `` `default_nettype wire `` at the bottom if toolchain requires.
-  - *Why:* Prevents silent 1-bit wire inference when signal names are misspelled, catching typos during compilation instead of during board debugging.
+- **Compiler directive**: ALWAYS declare `` `default_nettype none `` at the top of every file. Restore with `` `default_nettype wire `` at the bottom.
 - **Ports**: ANSI C-style port declarations ONLY. One port per line, aligned: direction (`input`/`output`/`inout`), net/variable type (`wire`/`reg`), signedness, width `[MSB:0]`, name. Group: Clocks/Resets, Control/Flow, Data Path, Status. NEVER use legacy Verilog-1995 split declarations.
   *Example:*
   ```verilog
@@ -44,7 +41,7 @@ Objective syntax, naming patterns, compiler directives, and banned language cons
       output wire                  done
   );
   ```
-- **Instantiations**: Named port binding ONLY (`.clock(clock), .reset(reset)`). NEVER use positional instantiation. SystemVerilog wildcard `.*` is unsupported.
+- **Instantiations**: Named port binding ONLY (`.clock(clock), .reset(reset)`). NEVER use positional instantiation.
 - **Unconnected ports**: Explicitly mark unused outputs with empty binding `.unused_port()`. NEVER leave input ports floating—tie off explicitly to sized literals (`1'b0` or `1'b1`).
 - **Indentation**: 2 or 4 spaces consistently; NO tabs; 100-column soft limit (120 hard).
 - **Dedicated processes**: Combinational logic MUST use `always @*` (or `always @(*)`). NEVER use manual sensitivity lists like `always @(a or b)` in synthesizable RTL. Sequential logic MUST use edge-triggered `always @(posedge clock or posedge reset)` or synchronous `always @(posedge clock)`.
@@ -59,15 +56,14 @@ Objective syntax, naming patterns, compiler directives, and banned language cons
 - **Single driver rule**: NEVER drive a signal from multiple `always` blocks or mix continuous `assign` with procedural assignments on the same signal.
 - **Latch prevention (Default Assignment Idiom)**: In `always @*`, ALWAYS assign default values to all outputs at the very top of the block before any conditional branches, OR guarantee explicit assignment in every branch of `if`/`else` and `case`.
 - **Exhaustive case**: ALWAYS provide a `default:` branch in `case` statements, even when states seem completely enumerated.
-- **Synthesis pragmas**: NEVER use `// synopsys full_case parallel_case`.
 
 ---
 
 ## 4. Types, Widths, & Arithmetic
 
-- **Data types**: Use `wire` for nets, continuous assignments, and submodule interconnects. Use `reg` strictly for procedural targets in `always` blocks. NEVER use SystemVerilog `logic`.
+- **Data types**: Use `wire` for nets, continuous assignments, and submodule interconnects. Use `reg` strictly for procedural targets in `always` blocks.
 - **Explicit sizing**: NEVER use unsized literals (e.g., `42`, `0`). Always size: `8'd42`, `1'b0`, `16'hFFFF`.
-  - SystemVerilog `'0` and `'1` do not exist. For bus clearing or filling, use `{WIDTH{1'b0}}` or `[WIDTH-1:0]'d0`.
+  - For bus clearing or filling, use `{WIDTH{1'b0}}` or `[WIDTH-1:0]'d0`.
 - **Arithmetic carry width**: When adding two $N$-bit signals, destination MUST be at least $N+1$ bits wide to avoid silent overflow.
 - **Signedness**: Verilog-2001 supports `signed`. NEVER mix signed and unsigned operands in the same expression without explicit `$signed()` or manual sign-extension.
 - **Cyclone V DSP blocks**: Multiplications (`*`) infer Variable Precision DSP Blocks in Cyclone V when operand widths justify hardware multipliers. Keep multiplier widths aligned to 9, 18, or 27 bits for optimal ALM-to-DSP resource utilization.
@@ -76,7 +72,7 @@ Objective syntax, naming patterns, compiler directives, and banned language cons
 
 ## 5. FPGA Architecture: Clocks, Resets, & Cyclone V Hardware Invariants
 
-- **Dedicated Clock Networks (GCLK)**: NEVER generate gated or divided clocks using logic gates (`wire clk_gated = clk & en`). Gated clocks cause severe clock skew, routing delays, and hold violations across Cyclone V ALMs.
+- **Dedicated Clock Networks (GCLK)**: NEVER generate gated or divided clocks using logic gates (`wire clk_gated = clk & en`).
 - **Clock enables**: ALWAYS implement clock gating using register clock enables:
   *Example:*
   ```verilog
@@ -144,7 +140,6 @@ Objective syntax, naming patterns, compiler directives, and banned language cons
 
 ## 8. Quartus Prime 20.1 Synthesis & Timing Closure
 
-- **Timing Constraints (`.sdc`)**: Every design targeting Cyclone V in Quartus Prime MUST have at least a clock constraint in its Synopsys Design Constraints file (`create_clock -name clock -period 20.000 [get_ports CLOCK_50]`).
 - **Synthesis attributes**: Use standard Verilog-2001 attributes `(* ramstyle = "M10K" *)` or `(* keep *)` directly above declarations when synthesis control is required.
 - **Warnings treated as synthesis errors**:
   - Inferred latches (`Warning: Inferring latch for "..."`).
