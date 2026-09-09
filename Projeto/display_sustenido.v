@@ -1,10 +1,12 @@
+`default_nettype none
+
 // ---------------------------------------------------------------------------
 // Modulo: display_sustenido
 // Descricao: Implementa a lógica do sustenido para mostrar "H" (representando #)
 // ---------------------------------------------------------------------------
 module display_sustenido (
-    input            sustenido,
-    output reg [6:0] display
+    input  wire       sustenido,
+    output reg  [6:0] display
 );
 
     always @(*) begin
@@ -15,3 +17,5 @@ module display_sustenido (
     end
 
 endmodule
+
+`default_nettype wire

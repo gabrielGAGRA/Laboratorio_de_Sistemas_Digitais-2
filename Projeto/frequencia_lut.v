@@ -1,13 +1,15 @@
+`default_nettype none
+
 // ---------------------------------------------------------------------------
-// Modulo: frequency_lut
+// Modulo: frequencia_lut
 // Descricao: Converte nota e oitava no limite do contador (N_ticks).
 // Base: Clock de 50MHz.
 // ---------------------------------------------------------------------------
-module frequency_lut (
-    input  [2:0] nota_id,    
-    input        sustenido,
-    input  [2:0] oitava,
-    output reg [17:0] n_ticks
+module frequencia_lut (
+    input  wire  [2:0] nota_id,    
+    input  wire        sustenido,
+    input  wire  [2:0] oitava,
+    output reg  [17:0] n_ticks
 );
 
     reg [17:0] base_freq;
@@ -65,4 +67,7 @@ module frequency_lut (
         endcase
         n_ticks = base_freq;
     end
+
 endmodule
+
+`default_nettype wire

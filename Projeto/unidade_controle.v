@@ -1,74 +1,70 @@
+`default_nettype none
+
 // ---------------------------------------------------------------------------
 // Modulo: unidade_controle
 // Descricao: FSM de controle do Piano (Gerencia estados Musicais e de Modo)
 // ---------------------------------------------------------------------------
 module unidade_controle (
-    input clock,
-    input reset,
+    input  wire       clock,
+    input  wire       reset,
     
     // Entradas
-    input mudou_modo,       
-    input mudou_musica,
-    input tem_nota_ativa,
-    input tecla_pressionada,   
-    input acerto_nota,      
-    input fim_musica,      
-    input pulso_bpm,
+    input  wire       mudou_modo,       
+    input  wire       mudou_musica,
+    input  wire       tem_nota_ativa,
+    input  wire       tecla_pressionada,   
+    input  wire       acerto_nota,      
+    input  wire       fim_musica,      
+    input  wire       pulso_bpm,
     
     // Saidas de Estado
-    output reg [1:0] modo_ativo, 
-    output reg escreve_ram,
-    output reg zera_endereco,
-    output reg conta_endereco,
-    output reg [4:0] estado_hex // Para depuracao so
+    output reg  [1:0] modo_ativo, 
+    output reg        escreve_ram,
+    output reg        zera_endereco,
+    output reg        conta_endereco,
+    output reg  [4:0] estado_hex // Para depuracao so
 );
 
     // Estados da UC
-    parameter INICIAL           = 5'd0;
-    parameter LIVRE             = 5'd1;
-    
-    // Aprendizado
-    parameter INICIA_MUSICA     = 5'd2;
-    parameter ESPERA_NOTA       = 5'd3;  
-    parameter COMPARA_NOTA      = 5'd4;  
-    parameter PROXIMO           = 5'd5;  
-    parameter ESPERA_SOLTAR     = 5'd6;  
-    parameter FIM_MUSICA_ST     = 5'd7; 
-    parameter LE_RAM_MODO1      = 5'd16;
+    localparam [4:0] INICIAL          = 5'd0,
+                     LIVRE            = 5'd1,
+                     INICIA_MUSICA    = 5'd2,
+                     ESPERA_NOTA      = 5'd3,  
+                     COMPARA_NOTA     = 5'd4,  
+                     PROXIMO          = 5'd5,  
+                     ESPERA_SOLTAR    = 5'd6,  
+                     FIM_MUSICA_ST    = 5'd7, 
+                     LE_RAM_MODO1     = 5'd16,
+                     INICIA_GRAVACAO  = 5'd8,
+                     GRAV_ESPERA_NOTA = 5'd9,
+                     GRAV_ARMAZENA    = 5'd10,
+                     GRAV_PROXIMO     = 5'd11,
+                     GRAV_SOLTAR      = 5'd12,
+                     INICIA_DEMO      = 5'd15,
+                     DEMO_TOCA_NOTA   = 5'd13,
+                     DEMO_PROXIMO     = 5'd14;
 
-    // Gravacao
-    parameter INICIA_GRAVACAO   = 5'd8;
-    parameter GRAV_ESPERA_NOTA  = 5'd9;
-    parameter GRAV_ARMAZENA     = 5'd10;
-    parameter GRAV_PROXIMO      = 5'd11;
-    parameter GRAV_SOLTAR       = 5'd12;
-    
-    // Demonstracao
-    parameter INICIA_DEMO       = 5'd15;
-    parameter DEMO_TOCA_NOTA    = 5'd13;
-    parameter DEMO_PROXIMO      = 5'd14;
-
-    reg [4:0] state, next_state;
+    reg [4:0] state_reg, next_state;
 
     always @(posedge clock or posedge reset) begin
         if (reset) begin
-            state <= INICIAL;
+            state_reg <= INICIAL;
         end else begin
-            state <= next_state; 
+            state_reg <= next_state; 
         end
     end
 
     // Logica de proximo estado e saidas
     always @(*) begin
         // Valores padrao
-        next_state = state;
+        next_state = state_reg;
         modo_ativo = 2'd0;
         escreve_ram = 1'b0;
         zera_endereco = 1'b0;
         conta_endereco = 1'b0;
         estado_hex = 5'd0;
 
-        case (state)
+        case (state_reg)
             INICIAL: begin
                 zera_endereco = 1'b1;
                 estado_hex = 5'h0; 
@@ -171,10 +167,10 @@ module unidade_controle (
             GRAV_SOLTAR: begin
                 modo_ativo = 2'd2;
                 estado_hex = 5'h2;
-                if (mudou_modo) next_state = INICIA_DEMO;
-                else if (!tem_nota_ativa) begin
-                    if (fim_musica) next_state = GRAV_ESPERA_NOTA; 
-                    else next_state = GRAV_ESPERA_NOTA;
+                if (mudou_modo) begin
+                    next_state = INICIA_DEMO;
+                end else if (!tem_nota_ativa) begin
+                    next_state = GRAV_ESPERA_NOTA;
                 end
             end
             
@@ -212,3 +208,4 @@ module unidade_controle (
         endcase
     end
 endmodule
+`default_nettype wire

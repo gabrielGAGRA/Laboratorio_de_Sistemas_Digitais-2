@@ -1,10 +1,12 @@
+`default_nettype none
+
 // ---------------------------------------------------------------------------
 // Modulo: decodificador_cifra
 // Descricao: Converte o ID da nota (1 a 7) para o respectivo caractere (A-G) no 7-seg.
 // ---------------------------------------------------------------------------
 module decodificador_cifra (
-    input      [2:0] nota_id,
-    output reg [6:0] display
+    input  wire [2:0] nota_id,
+    output reg  [6:0] display
 );
 
     always @(*) begin
@@ -21,3 +23,5 @@ module decodificador_cifra (
     end
 
 endmodule
+
+`default_nettype wire

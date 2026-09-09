@@ -1,3 +1,5 @@
+`default_nettype none
+
 /* ------------------------------------------------------------------------
  *  Arquivo   : edge_detector.v
  *  Projeto   : Experiencia 4 - Desenvolvimento de Projeto de
@@ -19,10 +21,10 @@
  */
  
 module edge_detector (
-    input  clock,
-    input  reset,
-    input  sinal,
-    output pulso
+    input  wire clock,
+    input  wire reset,
+    input  wire sinal,
+    output wire pulso
 );
 
     reg reg0;
@@ -32,7 +34,7 @@ module edge_detector (
         if (reset) begin
             reg0 <= 1'b0;
             reg1 <= 1'b0;
-        end else if (clock) begin
+        end else begin
             reg0 <= sinal;
             reg1 <= reg0;
         end
@@ -41,3 +43,5 @@ module edge_detector (
     assign pulso = ~reg1 & reg0;
 
 endmodule
+
+`default_nettype wire
