@@ -1,16 +1,18 @@
 ---
-description: Use when editing Verilog - feature change checklist, post-change quality gate, and decision matrix.
-globs: Laboratórios/**/*.v,Laboratórios/**/*.vh
+description: Use when editing Verilog - changes checklist, post-change quality gate, and decision matrix.
+paths:
+  - "Laboratórios/**/*.v"
+  - "Laboratórios/**/*.vh"
 ---
 
 # Feature Change Checklist
 
 ## Post-change
 1. **Quality gate:** Run `python3 scripts/lint_verilog.py <files>`.
-2. **Simulation gate:** Execute the self-checking testbench with `iverilog` until displays 0 errors.
-3. **Rules / governance:** When necessary, read `@project-rules-writing`, only right before updating rules (invocation time).
-4. **Git:** Only when requested by user; if so, read `@commit` only at invocation time.
-5. **Adversarial review:** Use `@adversarial-review` on a subagent; resolve Required findings and re-run affected verification.
+2. **Simulation gate:** Execute the self-checking testbench with `iverilog` until displays 0 errors. If checks fail or timing diverges, diagnose with `python3 scripts/vcd_trace.py <vcd>`.
+3. **Rules / governance:** When necessary only.
+4. **Git:** Only when requested by user.
+5. **Adversarial review:** Resolve required findings and re-run affected verification.
 
 ## Decision Matrix
 After finishing a task, evaluate downstream updates. Open a file ONLY when a trigger below matches.

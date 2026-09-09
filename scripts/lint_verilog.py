@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Strict Verilog-2001 & Intel Cyclone V RTL Linter.
   *. Tools:
      - Icarus Verilog (iverilog): Compiler elaboration pre-flight check
@@ -109,6 +108,11 @@ RE_MODULE = re.compile(r"\bmodule\s+([a-zA-Z_0-9]+)\b")
 RE_FSM_PARAM = re.compile(
     r"^\s*parameter\s+(?:(?:\[[^\]]+\]|\w+)\s+)?([A-Z0-9_]*(?:IDLE|WAIT|STATE|ST_|MODO|ESPERA|PROX|INIC|FIM)[A-Z0-9_]*)\s*="
 )
+PARAM_EXCLUDE_SUFFIXES = (
+    "_CYCLES", "_TICKS", "_TIMEOUT", "_WIDTH", "_MAX", "_MIN",
+    "_DIV", "_MS", "_US", "_NS", "_HZ", "_CNT", "_COUNT", "_LIMIT", "_VAL"
+)
+
 RE_ALWAYS = re.compile(r"\balways\s*@\s*(\([^)]*\)|\*)")
 RE_MEM_DECL = re.compile(r"\breg\s+(?:\[[^\]]+\]\s+)?([a-zA-Z_0-9]+)\s*\[[^\]]+\]\s*;")
 RE_INST = re.compile(
@@ -116,7 +120,7 @@ RE_INST = re.compile(
     re.MULTILINE,
 )
 RE_GATED_CLK = re.compile(
-    r"\b(?:assign\s+|wire\s+)[a-zA-Z_0-9]*clk[a-zA-Z_0-9]*\s*=\s*[^;]*\b(?:clk|clock)\s*&",
+    r"\b(?:assign\s+|wire\s+)[a-zA-Z_0-9]*clk[a-zA-Z_0-9]*\s*=\s*[^;]*(?:\b(?:clk|clock)\b\s*&|&\s*\b(?:clk|clock)\b)",
     re.IGNORECASE,
 )
 RE_ASSIGN = re.compile(r"^\s*assign\b")
@@ -134,6 +138,7 @@ SV_KEYWORDS: Tuple[Tuple[str, Pattern], ...] = (
     ("typedef", re.compile(r"\btypedef\b")),
     ("enum", re.compile(r"\benum\b")),
     ("package", re.compile(r"\bpackage\b")),
+    ("interface", re.compile(r"\binterface\b")),
     ("'0 or '1", re.compile(r"(?<!\d)'[01]\b")),
 )
 
@@ -143,6 +148,20 @@ RESERVED_KEYWORDS = {
     "function", "task",
 }
 
+PRIMITIVE_GATES = {
+    "and", "nand", "or", "nor", "xor", "xnor", "buf", "not",
+    "bufif0", "bufif1", "notif0", "notif1",
+}
+
+FATAL_VERILATOR_RULES = {
+    "LATCH",
+    "WIDTH",
+    "CASEINCOMPLETE",
+    "COMBDLY",
+    "UNDRIVEN",
+    "MULTIDRIVEN",
+    "ALWCOMBORDER",
+}
 
 
 class VerilogLinter:
@@ -177,6 +196,7 @@ class VerilogLinter:
                 1,
                 "SystemVerilog extension (.sv) prohibited. Use .v for synthesizable Verilog-2001.",
             )
+            return violations
 
         if file_path.suffix not in [".v", ".vh"]:
             return violations
@@ -194,7 +214,7 @@ class VerilogLinter:
         self._check_file_structure(file_path, masked_lines, lines, violations)
         self._check_sv_keywords(file_path, masked_lines, lines, violations)
         self._check_procedural_blocks(file_path, masked_lines, lines, violations, is_tb)
-        self._check_instantiations_and_ports(file_path, masked_lines, lines, violations)
+        self._check_instantiations_and_ports(file_path, masked_lines, lines, violations, is_tb)
         self._check_cyclone_v_invariants(file_path, masked_lines, lines, violations)
 
         if file_path.suffix == ".v":
@@ -213,54 +233,77 @@ class VerilogLinter:
         violations: List[LintViolation],
     ) -> None:
         has_nettype_none = False
+        nettype_none_line = None
         has_nettype_wire = False
-        module_line = None
-        module_name = None
+        nettype_wire_line = None
+        module_lines: List[Tuple[int, str]] = []
+        last_endmodule_line = None
 
         for idx, line in enumerate(masked_lines):
             line_num = idx + 1
             if "`default_nettype" in line:
                 if "none" in line:
                     has_nettype_none = True
+                    if nettype_none_line is None:
+                        nettype_none_line = line_num
                 elif "wire" in line:
                     has_nettype_wire = True
+                    nettype_wire_line = line_num
 
             match = RE_MODULE.search(line)
-            if match and module_line is None:
-                module_line = line_num
-                module_name = match.group(1)
+            if match:
+                module_lines.append((line_num, match.group(1)))
 
-        if not has_nettype_none:
+            if "endmodule" in line:
+                last_endmodule_line = line_num
+
+        first_mod_line = module_lines[0][0] if module_lines else (len(raw_lines) + 1)
+
+        if not has_nettype_none or (nettype_none_line and nettype_none_line > first_mod_line):
             self._add(
                 violations,
                 "DIRECTIVE_DEFAULT_NETTYPE_NONE",
                 file_path,
+                nettype_none_line or 1,
                 1,
-                1,
-                "Missing `default_nettype none at top of file. Required to prevent silent 1-bit wire inference.",
+                "Missing `default_nettype none at top of file (must precede module declarations) to prevent silent 1-bit wire inference.",
             )
 
-        if not has_nettype_wire:
-            last_line = len(raw_lines) or 1
-            self._add(
-                violations,
-                "DIRECTIVE_DEFAULT_NETTYPE_WIRE",
-                file_path,
-                last_line,
-                1,
-                "Missing `default_nettype wire at end of file to restore default toolchain behavior.",
-            )
+        if file_path.suffix == ".v":
+            if not has_nettype_wire or (last_endmodule_line and nettype_wire_line and nettype_wire_line < last_endmodule_line):
+                last_line = len(raw_lines) or 1
+                self._add(
+                    violations,
+                    "DIRECTIVE_DEFAULT_NETTYPE_WIRE",
+                    file_path,
+                    nettype_wire_line or last_line,
+                    1,
+                    "Missing `default_nettype wire at end of file (must follow endmodule) to restore default toolchain behavior.",
+                )
 
-        if file_path.suffix == ".v" and module_name and module_name != file_path.stem:
-            self._add(
-                violations,
-                "FILE_MODULE_NAME_MISMATCH",
-                file_path,
-                module_line or 1,
-                1,
-                f"Module name '{module_name}' does not match filename '{file_path.name}'.",
-                raw_lines[module_line - 1] if module_line and module_line <= len(raw_lines) else "",
-            )
+            if len(module_lines) > 1:
+                mod_names = ", ".join(f"'{m[1]}'" for m in module_lines)
+                self._add(
+                    violations,
+                    "FILE_MULTIPLE_MODULES",
+                    file_path,
+                    module_lines[1][0],
+                    1,
+                    f"File contains multiple modules ({mod_names}). Exactly one module per file matching filename stem is required.",
+                    raw_lines[module_lines[1][0] - 1] if module_lines[1][0] <= len(raw_lines) else "",
+                )
+            elif len(module_lines) == 1:
+                mod_line, mod_name = module_lines[0]
+                if mod_name != file_path.stem:
+                    self._add(
+                        violations,
+                        "FILE_MODULE_NAME_MISMATCH",
+                        file_path,
+                        mod_line,
+                        1,
+                        f"Module name '{mod_name}' does not match filename '{file_path.name}'.",
+                        raw_lines[mod_line - 1] if mod_line <= len(raw_lines) else "",
+                    )
 
     def _check_sv_keywords(
         self,
@@ -294,6 +337,9 @@ class VerilogLinter:
         current_block: Optional[str] = None
         block_depth = 0
         in_always = False
+        in_always_header = False
+        always_header_buf = ""
+        always_header_line = 1
 
         for idx, line in enumerate(masked_lines):
             line_num = idx + 1
@@ -301,15 +347,17 @@ class VerilogLinter:
 
             fsm_match = RE_FSM_PARAM.search(line)
             if fsm_match:
-                self._add(
-                    violations,
-                    "FSM_PARAMETER_PROHIBITED",
-                    file_path,
-                    line_num,
-                    fsm_match.start() + 1,
-                    f"FSM state/mode '{fsm_match.group(1)}' declared with 'parameter'. Use 'localparam [WIDTH-1:0]'.",
-                    raw_lines[idx],
-                )
+                param_name = fsm_match.group(1)
+                if not any(param_name.endswith(suf) for suf in PARAM_EXCLUDE_SUFFIXES):
+                    self._add(
+                        violations,
+                        "FSM_PARAMETER_PROHIBITED",
+                        file_path,
+                        line_num,
+                        fsm_match.start() + 1,
+                        f"FSM state/mode '{param_name}' declared with 'parameter'. Use 'localparam [WIDTH-1:0]'.",
+                        raw_lines[idx],
+                    )
 
             if not is_tb:
                 delay_match = RE_DELAY.search(line)
@@ -324,34 +372,58 @@ class VerilogLinter:
                         raw_lines[idx],
                     )
 
-            always_match = RE_ALWAYS.search(line)
-            if always_match:
-                sens = always_match.group(1).strip()
-                in_always = True
-                if "*" in sens:
-                    current_block = "combinational"
-                elif "posedge" in sens or "negedge" in sens:
-                    current_block = "sequential"
-                else:
-                    current_block = "combinational"
-                    self._add(
-                        violations,
-                        "MANUAL_SENSITIVITY_LIST",
-                        file_path,
-                        line_num,
-                        always_match.start() + 1,
-                        "Manual sensitivity list in combinational block. Use 'always @*' (or 'always @(*)').",
-                        raw_lines[idx],
-                    )
+            if not in_always_header:
+                always_match = RE_ALWAYS.search(line)
+                if always_match:
+                    sens = always_match.group(1).strip()
+                    in_always = True
+                    if "*" in sens:
+                        current_block = "combinational"
+                    elif "posedge" in sens or "negedge" in sens:
+                        current_block = "sequential"
+                    else:
+                        current_block = "combinational"
+                        self._add(
+                            violations,
+                            "MANUAL_SENSITIVITY_LIST",
+                            file_path,
+                            line_num,
+                            always_match.start() + 1,
+                            "Manual sensitivity list in combinational block. Use 'always @*' (or 'always @(*)').",
+                            raw_lines[idx],
+                        )
+                elif re.search(r"\balways\s*@", line):
+                    in_always_header = True
+                    always_header_buf = line
+                    always_header_line = line_num
+            else:
+                always_header_buf += " " + line
+                if ")" in line:
+                    in_always_header = False
+                    in_always = True
+                    m_sens = re.search(r"\balways\s*@\s*(\([^)]*\)|\*)", always_header_buf)
+                    if m_sens:
+                        sens = m_sens.group(1).strip()
+                        if "*" in sens:
+                            current_block = "combinational"
+                        elif "posedge" in sens or "negedge" in sens:
+                            current_block = "sequential"
+                        else:
+                            current_block = "combinational"
+                            self._add(
+                                violations,
+                                "MANUAL_SENSITIVITY_LIST",
+                                file_path,
+                                always_header_line,
+                                1,
+                                "Manual sensitivity list in combinational block. Use 'always @*' (or 'always @(*)').",
+                                raw_lines[always_header_line - 1],
+                            )
 
+            begins = len(re.findall(r"\bbegin\b", line))
+            ends = len(re.findall(r"\bend\b", line))
             if in_always:
-                begins = len(re.findall(r"\bbegin\b", line))
-                ends = len(re.findall(r"\bend\b", line))
                 block_depth += begins - ends
-                if block_depth <= 0 and (ends > 0 or ";" in line):
-                    in_always = False
-                    current_block = None
-                    block_depth = 0
 
             if current_block == "sequential" and not is_assign:
                 red_clk = RE_REDUNDANT_CLK.search(line)
@@ -368,8 +440,8 @@ class VerilogLinter:
 
                 if not re.search(r"\bfor\s*\(", line):
                     blk = RE_BLOCKING.search(line)
-                    if blk and not RE_NONBLOCKING.search(line):
-                        if re.search(r"\b\w+(?:\[[^\]]+\])?\s*=(?![=])", line):
+                    if blk and not re.search(r"\b(?:if|while)\s*\(.*=", line):
+                        if re.search(r"(?:^\s*|\b(?:begin|else)\s+)(?:[a-zA-Z_0-9]+(?:\s*\[[^\]]+\])?|\{[^}]+\})\s*=(?![=])", line):
                             self._add(
                                 violations,
                                 "SEQUENTIAL_BLOCKING_ASSIGNMENT",
@@ -381,21 +453,29 @@ class VerilogLinter:
                             )
 
             elif current_block == "combinational" and not is_assign:
-                nonblk = RE_NONBLOCKING.search(line)
-                if nonblk:
-                    self._add(
-                        violations,
-                        "COMBINATIONAL_NONBLOCKING_ASSIGNMENT",
-                        file_path,
-                        line_num,
-                        nonblk.start() + 1,
-                        "Non-blocking assignment (<=) inside combinational always block. Use blocking (=).",
-                        raw_lines[idx],
-                    )
+                if not re.search(r"\b(?:if|while)\s*\(.*<=", line):
+                    nonblk = re.search(r"(?:^\s*|\b(?:begin|else)\s+)(?:[a-zA-Z_0-9]+(?:\s*\[[^\]]+\])?|\{[^}]+\})\s*<=(?![=])", line)
+                    if nonblk:
+                        self._add(
+                            violations,
+                            "COMBINATIONAL_NONBLOCKING_ASSIGNMENT",
+                            file_path,
+                            line_num,
+                            nonblk.start() + 1,
+                            "Non-blocking assignment (<=) inside combinational always block. Use blocking (=).",
+                            raw_lines[idx],
+                        )
+
+            if in_always:
+                if block_depth <= 0 and (ends > 0 or (block_depth == 0 and begins == 0 and ";" in line)):
+                    in_always = False
+                    current_block = None
+                    block_depth = 0
 
             if "endmodule" in line:
                 current_block = None
                 in_always = False
+                in_always_header = False
                 block_depth = 0
 
     def _check_instantiations_and_ports(
@@ -404,6 +484,7 @@ class VerilogLinter:
         masked_lines: List[str],
         raw_lines: List[str],
         violations: List[LintViolation],
+        is_tb: bool = False,
     ) -> None:
         source_text = "\n".join(masked_lines)
 
@@ -415,7 +496,11 @@ class VerilogLinter:
             line_num = source_text[: match.start()].count("\n") + 1
             snippet = raw_lines[line_num - 1] if line_num <= len(raw_lines) else ""
 
-            if not (inst_name.startswith("u_") or inst_name.startswith("u_cell_")):
+            is_valid_prefix = inst_name.startswith("u_") or inst_name.startswith("u_cell_")
+            if is_tb:
+                is_valid_prefix = is_valid_prefix or inst_name in ("uut", "dut", "u_uut", "u_dut")
+
+            if not is_valid_prefix:
                 self._add(
                     violations,
                     "INSTANCE_NAME_PREFIX",
@@ -426,7 +511,7 @@ class VerilogLinter:
                     snippet,
                 )
 
-            if port_list and not re.search(r"\.\s*[a-zA-Z_0-9]+\s*\(", port_list):
+            if mod_type not in PRIMITIVE_GATES and port_list and not re.search(r"\.\s*[a-zA-Z_0-9]+\s*\(", port_list):
                 self._add(
                     violations,
                     "POSITIONAL_INSTANTIATION",
@@ -445,20 +530,36 @@ class VerilogLinter:
         violations: List[LintViolation],
     ) -> None:
         mem_arrays = {m.group(1) for line in masked_lines for m in [RE_MEM_DECL.search(line)] if m}
-        is_top = "top" in file_path.stem.lower()
+        stem_lower = file_path.stem.lower()
+        is_top = (
+            stem_lower == "top"
+            or stem_lower.endswith("_top")
+            or stem_lower.startswith("top_")
+            or any(re.search(r"\binout\b", l) for l in masked_lines)
+        )
 
+        in_comb = False
         for idx, line in enumerate(masked_lines):
             line_num = idx + 1
 
+            if re.search(r"\balways\s*@\s*(\*|\(\s*\*\s*\))", line):
+                in_comb = True
+            elif re.search(r"\balways\s*@\s*\(", line):
+                in_comb = False
+            if "endmodule" in line:
+                in_comb = False
+
             for mem in mem_arrays:
-                if re.search(rf"\bassign\s+[^=]+=\s*{mem}\s*\[", line):
+                is_async_assign = bool(re.search(rf"\bassign\s+[^=]+=\s*{mem}\s*\[", line))
+                is_async_comb = in_comb and bool(re.search(rf"\b\w+\s*=\s*{mem}\s*\[", line))
+                if is_async_assign or is_async_comb:
                     self._add(
                         violations,
                         "M10K_ASYNC_READ_PROHIBITED",
                         file_path,
                         line_num,
                         1,
-                        f"Asynchronous read on memory array '{mem}' (assign ... = {mem}[...]). "
+                        f"Asynchronous read on memory array '{mem}'. "
                         f"Cyclone V M10K blocks require synchronous read ('always @(posedge clock) q <= {mem}[addr]').",
                         raw_lines[idx],
                     )
@@ -500,7 +601,8 @@ class VerilogLinter:
                     m = re.match(r"^([^:]+):(\d+):\s*(error|warning)?\s*(.*)$", err_line, re.IGNORECASE)
                     if m:
                         _, line_str, err_type, msg = m.groups()
-                        is_warn = (err_type or "").lower() == "warning"
+                        is_note = msg.startswith("...") or (err_type or "").startswith("...")
+                        is_warn = (err_type or "").lower() == "warning" or is_note
                         self._add(
                             violations,
                             "IVERILOG_COMPILER_WARNING" if is_warn else "IVERILOG_COMPILER_ERROR",
@@ -511,7 +613,16 @@ class VerilogLinter:
                             severity=Severity.WARNING if is_warn else Severity.ERROR,
                         )
                     else:
-                        self._add(violations, "IVERILOG_COMPILER_ERROR", file_path, 0, 0, f"[iverilog] {err_line}")
+                        is_note = err_line.startswith("...") or "timescale" in err_line.lower()
+                        self._add(
+                            violations,
+                            "IVERILOG_COMPILER_WARNING" if is_note else "IVERILOG_COMPILER_ERROR",
+                            file_path,
+                            0,
+                            0,
+                            f"[iverilog] {err_line}",
+                            severity=Severity.WARNING if is_note else Severity.ERROR,
+                        )
         except Exception as e:
             self._add(violations, "IVERILOG_EXEC_ERROR", file_path, 0, 0, f"Could not execute iverilog: {e}", severity=Severity.WARNING)
 
@@ -528,6 +639,9 @@ class VerilogLinter:
             "-Wno-PINCONNECTEMPTY",
             "-Wno-UNUSEDSIGNAL",
             "-Wno-EOFNEWLINE",
+            "-Werror-LATCH",
+            "-Werror-CASEINCOMPLETE",
+            "-Werror-COMBDLY",
             str(file_path),
         ]
         try:
@@ -539,10 +653,11 @@ class VerilogLinter:
                         m = re.match(r"^%(Error|Warning)(?:-([A-Z0-9_]+))?:\s*([^:]+):(\d+):(?:\d+:)?\s*(.*)$", line)
                         if m:
                             sev, rule, _, line_no, msg = m.groups()
-                            is_err = sev == "Error"
+                            rule_name = rule or "LINT"
+                            is_err = (sev == "Error") or (rule_name in FATAL_VERILATOR_RULES)
                             self._add(
                                 violations,
-                                f"VERILATOR_{rule or 'LINT'}",
+                                f"VERILATOR_{rule_name}",
                                 file_path,
                                 int(line_no),
                                 1,
@@ -580,13 +695,14 @@ def main() -> int:
 
     targets: List[Path] = []
     excludes = [re.compile(re.escape(exc)) for exc in args.exclude]
+    valid_extensions = {".v", ".vh", ".sv"}
 
     for target in args.targets:
         t_path = Path(target).resolve()
-        if t_path.is_file() and t_path.suffix in [".v", ".vh"]:
+        if t_path.is_file() and t_path.suffix in valid_extensions:
             targets.append(t_path)
         elif t_path.is_dir():
-            targets.extend(p for p in t_path.rglob("*") if p.suffix in [".v", ".vh"])
+            targets.extend(p for p in t_path.rglob("*") if p.suffix in valid_extensions)
 
     filtered_files = sorted({f for f in targets if not any(exc.search(str(f)) for exc in excludes)})
 

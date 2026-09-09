@@ -13,7 +13,6 @@ globs: Laboratórios/**/tb_*.v,Laboratórios/**/*_tb.v
   ```
 - **Self-Checking Standard:** Testbenches must tally an `errors` integer and explicitly output `SUCCESS: ALL TESTBENCH CHECKS PASSED!` or `FAILURE: <N> error(s)` followed by `$finish`.
 - **Fast Simulation:** Override physical timing parameters (e.g., set debouncer or baud rate dividers to small numbers of cycles) to ensure simulations finish in milliseconds.
-- **User Assistance Role:** The user assists by providing expected test vectors from the lab guide (roteiro), inspecting waveforms (`.vcd` in GTKWave) when debugging subtle timing bugs, and running the synthesized bitstream on the physical DE0-CV FPGA board.
+- **Waveform Diagnostics:** When checks fail or timing diverges, dump VCD signals (`$dumpfile("sim.vcd"); $dumpvars(0, <tb>);`) and run `python3 scripts/vcd_trace.py sim.vcd --clock <clk> --signals <s1,s2>` to inspect cycle-accurate signal transitions before editing RTL.
 
 Simulation harnesses, template, and waveform dumping: `docs/llm/testbench-guide.md`.
-Synthesis and RTL coding rules: `docs/llm/software-engineering-rules-verilog.md`.

@@ -21,7 +21,7 @@ Rules point to passive docs — never duplicate coding standards there. Do not c
 	⁃	meta-rules — routing, priority, skill registry (alwaysApply: true)
 	⁃	project-rules — tech stack, venv (alwaysApply: true)
 	⁃	AGENTS.md — persona, XML behaviour tags (root; not a rule file)
-	⁃	agents-feature-checklist decides what do update when planning or implementing a change in the repo.
+	⁃	checklist — decides what do update when planning or implementing a change in the repo.
 	⁃	Others are scoped maps
 
 Keep 5–8 rule files.
