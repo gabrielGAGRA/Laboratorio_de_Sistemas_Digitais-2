@@ -13,20 +13,24 @@
  *      11/01/2024  1.0     Edson Midorikawa  criacao
  * -----------------------------------------------------------------------
  */
- 
-module registrador_n #(parameter N = 8) (
-    input          clock,
-    input          clear,
-    input          enable,
-    input  [N-1:0] D,
-    output [N-1:0] Q
+
+`default_nettype none
+
+module registrador_n #(
+    parameter N = 8
+) (
+    input  wire         clock,
+    input  wire         clear,
+    input  wire         enable,
+    input  wire [N-1:0] D,
+    output wire [N-1:0] Q
 );
 
     reg [N-1:0] IQ;
 
     always @(posedge clock or posedge clear) begin
         if (clear)
-            IQ <= 0;
+            IQ <= {N{1'b0}};
         else if (enable)
             IQ <= D;
     end
@@ -34,3 +38,5 @@ module registrador_n #(parameter N = 8) (
     assign Q = IQ;
 
 endmodule
+
+`default_nettype wire

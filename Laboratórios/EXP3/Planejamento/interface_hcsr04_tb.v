@@ -1,33 +1,42 @@
 /* --------------------------------------------------------------------------
  *  Arquivo   : interface_hcsr04_tb.v
  * --------------------------------------------------------------------------
- *  Descricao : testbench basico para o circuito de inteface com sensor
- *              ultrassonico de distancia
- *              possui 4 casos de teste, com truncamento e arredondamento
+ *  Descricao : testbench aprimorado e auto-verificavel para o circuito de
+ *              interface com o sensor ultrassonico de distancia HC-SR04
+ *              Contempla 7 casos de teste cobrindo limites fisicos, bancada,
+ *              truncamento e arredondamento simetrico.
  *              
  * --------------------------------------------------------------------------
  *  Revisoes  :
  *      Data        Versao  Autor             Descricao
  *      07/09/2024  1.0     Edson Midorikawa  versao em Verilog
- *      07/09/2025  1.1     Edson Midorikawa  revisao
  * --------------------------------------------------------------------------
  */
- 
+
 `timescale 1ns/1ns
 
 module interface_hcsr04_tb;
 
-    // Declaração de sinais
+    // Declaração de sinais de estímulo e monitoramento
     reg         clock_in = 0;
     reg         reset_in = 0;
     reg         medir_in = 0;
-    reg         echo_in = 0;
+    reg         echo_in  = 0;
     wire        trigger_out;
     wire [11:0] medida_out;
     wire        pronto_out;
     wire [3:0]  db_estado_out;
 
-    // Componente a ser testado (Device Under Test -- DUT)
+    // Variáveis de controle de teste
+    integer caso;
+    integer erros = 0;
+    reg [31:0] larguraPulso;
+
+    // Configurações do clock: 50 MHz (periodo = 20ns, semi-periodo = 10ns)
+    parameter clockPeriod = 20;
+    always #(clockPeriod/2) clock_in = ~clock_in;
+
+    // Componente a ser testado (DUT)
     interface_hcsr04 dut (
         .clock    (clock_in     ),
         .reset    (reset_in     ),
@@ -39,75 +48,116 @@ module interface_hcsr04_tb;
         .db_estado(db_estado_out)
     );
 
-    // Configurações do clock
-    parameter clockPeriod = 20; // clock de 50MHz
-    // Gerador de clock
-    always #(clockPeriod/2) clock_in = ~clock_in;
+    // Arrays para os casos de teste
+    localparam NUM_CASOS = 7;
+    reg [31:0] casos_tempo     [0:NUM_CASOS-1]; // tempo em us
+    reg [11:0] casos_esperados [0:NUM_CASOS-1]; // medida esperada em BCD (12 bits)
 
-    // Array de casos de teste (estrutura equivalente em Verilog)
-    reg [31:0] casos_teste [0:3]; // Usando 32 bits para acomodar o tempo
-    integer caso;
-
-    // Largura do pulso
-    reg [31:0] larguraPulso; // Usando 32 bits para acomodar tempos maiores
-
-    // Geração dos sinais de entrada (estímulos)
     initial begin
-        $display("Inicio das simulacoes");
+        // Inicializacao dos casos de teste
+        // Caso 0: 2 cm -> 118 us (limite fisico inferior do HC-SR04)
+        casos_tempo[0]     = 118;
+        casos_esperados[0] = 12'h002;
 
-        // Inicialização do array de casos de teste
-        casos_teste[0] = 5882;   // 5882us (100cm)
-        casos_teste[1] = 5899;   // 5899us (100,29cm) truncar para 100cm
-        casos_teste[2] = 4353;   // 4353us (74cm)
-        casos_teste[3] = 4399;   // 4399us (74,79cm) arredondar para 75cm
+        // Caso 1: 15 cm -> 882 us (obstaculo proximo em bancada)
+        casos_tempo[1]     = 882;
+        casos_esperados[1] = 12'h015;
+
+        // Caso 2: 74 cm -> 4353 us (distancia intermediaria nominal)
+        casos_tempo[2]     = 4353;
+        casos_esperados[2] = 12'h074;
+
+        // Caso 3: 74.79 cm -> 4399 us (arredondar para cima >= 0.5 cm -> 75 cm)
+        casos_tempo[3]     = 4399;
+        casos_esperados[3] = 12'h075;
+
+        // Caso 4: 100 cm -> 5882 us (distancia de referencia de 1 metro)
+        casos_tempo[4]     = 5882;
+        casos_esperados[4] = 12'h100;
+
+        // Caso 5: 100.29 cm -> 5899 us (truncar para baixo < 0.5 cm -> 100 cm)
+        casos_tempo[5]     = 5899;
+        casos_esperados[5] = 12'h100;
+
+        // Caso 6: 250 cm -> 14706 us (limite tipico do espaco de bancada/laboratorio)
+        casos_tempo[6]     = 14706;
+        casos_esperados[6] = 12'h250;
+
+        $display("===================================================================");
+        $display("   INICIO DA SIMULACAO AUTO-VERIFICAVEL: interface_hcsr04_tb");
+        $display("===================================================================");
 
         // Valores iniciais
         medir_in = 0;
         echo_in  = 0;
+        erros    = 0;
 
-        // Reset
-        caso = 0; 
+        // Reset inicial do circuito
         #(2*clockPeriod);
         reset_in = 1;
         #(2_000); // 2 us
         reset_in = 0;
         @(negedge clock_in);
 
-        // Espera de 100us
-        #(100_000); // 100 us
+        // Espera de estabilizacao de 100 us
+        #(100_000);
 
-        // Loop pelos casos de teste
-        for (caso = 1; caso < 5; caso = caso + 1) begin
-            // 1) Determina a largura do pulso echo
-            $display("Caso de teste %0d: %0dus", caso, casos_teste[caso-1]);
-            larguraPulso = casos_teste[caso-1]*1000; // 1us=1000
+        // Execucao dos casos de teste
+        for (caso = 1; caso <= NUM_CASOS; caso = caso + 1) begin
+            larguraPulso = casos_tempo[caso-1] * 1000; // converte us para ns
 
-            // 2) Envia pulso medir
+            $display("\n--- Caso de Teste %0d: Pulso de Eco = %0d us (Esperado: %x cm) ---", 
+                     caso, casos_tempo[caso-1], casos_esperados[caso-1]);
+
+            // 1) Envia pulso de medicao (medir_in ativo por 5 clocks)
             @(negedge clock_in);
             medir_in = 1;
             #(5*clockPeriod);
             medir_in = 0;
 
-            // 3) Espera por 400us (tempo entre trigger e echo)
-            #(400_000); // 400 us
+            // 2) Aguarda geracao do pulso de trigger
+            wait (trigger_out == 1'b1);
+            $display("  [%0t ns] Trigger ativado!", $time);
+            wait (trigger_out == 1'b0);
+            $display("  [%0t ns] Trigger desativado.", $time);
 
-            // 4) Gera pulso de echo
+            // 3) Emula atraso de propagacao do sensor (~400 us)
+            #(400_000);
+
+            // 4) Emula eco retornado pelo sensor HC-SR04
+            $display("  [%0t ns] Gerando pulso de eco (duracao: %0d us)...", $time, casos_tempo[caso-1]);
             echo_in = 1;
             #(larguraPulso);
             echo_in = 0;
 
-            // 5) Espera final da medida
+            // 5) Aguarda conclusao da medicao pela interface
             wait (pronto_out == 1'b1);
-            $display("Fim do caso %0d", caso);
+            $display("  [%0t ns] Sinal pronto_out ativado!", $time);
 
-            // 6) Espera entre casos de teste
-            #(100_000); // 100 us
+            // 6) Verificacao automatica do valor medido em BCD
+            if (medida_out === casos_esperados[caso-1]) begin
+                $display("  [SUCESSO] Caso %0d: Medida = %x cm (Esperado = %x cm)", 
+                         caso, medida_out, casos_esperados[caso-1]);
+            end else begin
+                $display("  [FALHA] Caso %0d: Medida = %x cm (Esperado = %x cm) [ERRO!]", 
+                         caso, medida_out, casos_esperados[caso-1]);
+                erros = erros + 1;
+            end
+
+            // 7) Intervalo de repouso entre medicoes (100 us)
+            #(100_000);
         end
 
-        // Fim da simulação
-        $display("Fim das simulacoes");
-        caso = 99; 
-        $stop;
+        // Relatório final de conformidade
+        $display("\n===================================================================");
+        if (erros == 0) begin
+            $display("   RESULTADO: TODOS OS %0d CASOS DE TESTE PASSARAM COM SUCESSO!", NUM_CASOS);
+        end else begin
+            $display("   RESULTADO: FALHA! Foram detectados %0d erro(s) na simulacao.", erros);
+        end
+        $display("===================================================================");
+
+        $finish;
     end
 
 endmodule

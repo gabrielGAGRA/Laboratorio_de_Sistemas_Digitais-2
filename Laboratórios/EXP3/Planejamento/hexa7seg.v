@@ -1,5 +1,8 @@
-/* -------------------------------------------------------------
+`default_nettype none
+
+/* ----------------------------------------------------------------
  * Arquivo   : hexa7seg.v
+ * Projeto   : Experiencia 2 - Um Fluxo de Dados Simples
  *--------------------------------------------------------------
  * Descricao : decodificador hexadecimal para 
  *             display de 7 segmentos 
@@ -19,9 +22,10 @@
  *--------------------------------------------------------------
  */
 
-module hexa7seg (hexa, display);
-    input      [3:0] hexa;
-    output reg [6:0] display;
+module hexa7seg (
+    input  wire [4:0] hexa,
+    output reg  [6:0] display
+);
 
     /*
      *    ---
@@ -36,24 +40,34 @@ module hexa7seg (hexa, display);
      *     3
      */
         
-    always @(hexa)
-    case (hexa)
-        4'h0:    display = 7'b1000000;
-        4'h1:    display = 7'b1111001;
-        4'h2:    display = 7'b0100100;
-        4'h3:    display = 7'b0110000;
-        4'h4:    display = 7'b0011001;
-        4'h5:    display = 7'b0010010;
-        4'h6:    display = 7'b0000010;
-        4'h7:    display = 7'b1111000;
-        4'h8:    display = 7'b0000000;
-        4'h9:    display = 7'b0010000;
-        4'ha:    display = 7'b0001000;
-        4'hb:    display = 7'b0000011;
-        4'hc:    display = 7'b1000110;
-        4'hd:    display = 7'b0100001;
-        4'he:    display = 7'b0000110;
-        4'hf:    display = 7'b0001110;
-        default: display = 7'b1111111;
-    endcase
+    always @* begin
+        case (hexa)
+            5'h0:    display = 7'b1000000;
+            5'h1:    display = 7'b1111001;
+            5'h2:    display = 7'b0100100;
+            5'h3:    display = 7'b0110000;
+            5'h4:    display = 7'b0011001;
+            5'h5:    display = 7'b0010010;
+            5'h6:    display = 7'b0000010;
+            5'h7:    display = 7'b1111000;
+            5'h8:    display = 7'b0000000;
+            5'h9:    display = 7'b0010000;
+            5'ha:    display = 7'b0001000;
+            5'hb:    display = 7'b0000011;
+            5'hc:    display = 7'b1000110;
+            5'hd:    display = 7'b0100001;
+            5'he:    display = 7'b0000110;
+            5'hf:    display = 7'b0001110;
+            5'h10:   display = 7'b1111110;		  
+            5'h11:   display = 7'b1111101;		 
+            5'h12:   display = 7'b1111011;
+            5'h13:   display = 7'b1110111;		  
+            5'h14:   display = 7'b1101111;
+            5'h15:   display = 7'b1011111;		  
+            default: display = 7'b1111111;
+        endcase
+    end
+
 endmodule
+
+`default_nettype wire

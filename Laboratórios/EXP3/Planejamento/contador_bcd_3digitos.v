@@ -10,15 +10,17 @@
  *      07/09/2024  1.0     Edson Midorikawa  versao em Verilog
  * --------------------------------------------------------------------------
  */
- 
+
+`default_nettype none
+
 module contador_bcd_3digitos (
-    input  wire      clock,
-    input  wire      zera,
-    input  wire      conta,
-    output  [3:0] digito0,
-    output  [3:0] digito1,
-    output  [3:0] digito2,
-    output        fim
+    input  wire       clock,
+    input  wire       zera,
+    input  wire       conta,
+    output wire [3:0] digito0,
+    output wire [3:0] digito1,
+    output wire [3:0] digito2,
+    output wire       fim
 );
 
     reg [3:0] s_dig2, s_dig1, s_dig0;
@@ -56,3 +58,5 @@ module contador_bcd_3digitos (
     assign digito0 = s_dig0;
 
 endmodule
+
+`default_nettype wire

@@ -64,12 +64,12 @@ module gerador_pulso_tb;
         gera = 0;
 
         // Aguarda até que o pulso seja gerado (pronto = 1)
-        @(posedge pronto);
+        wait (pronto == 1'b1);
         #(10 * CLOCK_PERIOD);
 
         // Fim da simulação
         $display("Fim da simulacao\n");
-        $stop;
+        $finish;
     end
 
 endmodule

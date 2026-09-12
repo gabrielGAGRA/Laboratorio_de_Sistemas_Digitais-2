@@ -100,7 +100,7 @@ module contador_m_tb;
     // Final do testbench
     caso = 99;
     $display("fim da simulacao");
-    $stop;
+    $finish;
   end
 
 endmodule

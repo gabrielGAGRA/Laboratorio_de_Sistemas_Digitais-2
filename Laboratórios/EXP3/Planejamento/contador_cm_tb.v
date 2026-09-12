@@ -94,7 +94,7 @@ module contador_cm_tb;
 
             // 5) Espera final da medida
             wait (pronto_out == 1'b1);
-            $display("Fim do caso %0d", caso);
+            $display("Fim do caso %0d: Medida = %x%x%x cm", caso, digito2_out, digito1_out, digito0_out);
 
             // 6) Espera entre casos de teste
             #(100_000); // 100 us
@@ -103,7 +103,7 @@ module contador_cm_tb;
         // Fim da simulação
         $display("Fim das simulacoes");
         caso=99; 
-        $stop;
+        $finish;
     end
 
 endmodule

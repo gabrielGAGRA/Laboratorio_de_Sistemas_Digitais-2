@@ -2,7 +2,6 @@
  *  Arquivo   : contador_cm.v
  * --------------------------------------------------------------------------
  *  Descricao : componente de contagem de cm 
- *
  *              componente parametrizado em funcao de clocks/cm
  *            
  * --------------------------------------------------------------------------
@@ -11,14 +10,16 @@
  *      07/09/2024  1.0     Edson Midorikawa  versao em Verilog
  * --------------------------------------------------------------------------
  */
- 
+
+`default_nettype none
+
 module contador_cm #(
     parameter R = 10,  // razão de clocks por cm
     parameter N = 4    // teto(log2(R))
 ) (
-    input wire        clock,
-    input wire        reset,
-    input wire        pulso,
+    input  wire       clock,
+    input  wire       reset,
+    input  wire       pulso,
     output wire [3:0] digito0,
     output wire [3:0] digito1,
     output wire [3:0] digito2,
@@ -37,7 +38,7 @@ module contador_cm #(
     contador_cm_fd #(
         .R(R), 
         .N(N)
-    ) FD (
+    ) u_fd (
         .clock     (clock       ),
         .pulso     (pulso       ),
         .zera_tick (s_zera_tick ),
@@ -52,7 +53,7 @@ module contador_cm #(
     );
 
     // Instanciação do contador_cm_uc
-    contador_cm_uc UC (
+    contador_cm_uc u_uc (
         .clock     (clock       ),
         .reset     (reset       ),
         .pulso     (pulso       ),
@@ -65,3 +66,5 @@ module contador_cm #(
     );
 
 endmodule
+
+`default_nettype wire

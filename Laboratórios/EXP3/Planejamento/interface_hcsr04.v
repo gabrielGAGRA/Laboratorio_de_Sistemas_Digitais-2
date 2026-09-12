@@ -1,7 +1,7 @@
 /* --------------------------------------------------------------------------
  *  Arquivo   : interface_hcsr04.v
  * --------------------------------------------------------------------------
- *  Descricao : circuito de interface com sensor ultrassonico de distancia
+ *  Descricao : circuito de interface com sensor ultrassonico de distancia HC-SR04
  *              
  * --------------------------------------------------------------------------
  *  Revisoes  :
@@ -9,12 +9,14 @@
  *      07/09/2024  1.0     Edson Midorikawa  versao em Verilog
  * --------------------------------------------------------------------------
  */
- 
+
+`default_nettype none
+
 module interface_hcsr04 (
-    input wire         clock,
-    input wire         reset,
-    input wire         medir,
-    input wire         echo,
+    input  wire        clock,
+    input  wire        reset,
+    input  wire        medir,
+    input  wire        echo,
     output wire        trigger,
     output wire [11:0] medida,
     output wire        pronto,
@@ -29,7 +31,7 @@ module interface_hcsr04 (
     wire [11:0] s_medida;
 
     // Unidade de controle
-    interface_hcsr04_uc U1 (
+    interface_hcsr04_uc u_uc (
         .clock     (clock       ),
         .reset     (reset       ),
         .medir     (medir       ),
@@ -43,7 +45,7 @@ module interface_hcsr04 (
     );
 
     // Fluxo de dados
-    interface_hcsr04_fd U2 (
+    interface_hcsr04_fd u_fd (
         .clock     (clock       ),
         .pulso     (echo        ), 
         .zera      (s_zera      ),
@@ -59,3 +61,5 @@ module interface_hcsr04 (
     assign medida = s_medida; 
 
 endmodule
+
+`default_nettype wire

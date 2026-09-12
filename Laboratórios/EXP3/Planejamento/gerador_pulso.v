@@ -11,41 +11,43 @@
  * --------------------------------------------------------------------------
  */
 
+`default_nettype none
+
 module gerador_pulso #(
     parameter largura = 25
 ) (
-    input wire clock,
-    input wire reset,
-    input wire gera,
-    input wire para,
-    output reg pulso,
-    output reg pronto
+    input  wire clock,
+    input  wire reset,
+    input  wire gera,
+    input  wire para,
+    output reg  pulso,
+    output reg  pronto
 );
 
     // Tipos e sinais
     reg [1:0] reg_estado, prox_estado;
-    reg [31:0] reg_cont, prox_cont; // usando 32 bits para acomodar valores maiores de largura
+    reg [31:0] reg_cont, prox_cont;
 
     // Parâmetros para os estados
-    localparam parado       = 2'b00;
-    localparam contagem     = 2'b01;
-    localparam final_pulso  = 2'b10;
+    localparam [1:0] parado      = 2'b00;
+    localparam [1:0] contagem    = 2'b01;
+    localparam [1:0] final_pulso = 2'b10;
 
     // Lógica de estado e contagem
-    always @(posedge clock, posedge reset) begin
+    always @(posedge clock or posedge reset) begin
         if (reset) begin
             reg_estado <= parado;
-            reg_cont <= 0;
+            reg_cont   <= 32'd0;
         end else begin
             reg_estado <= prox_estado;
-            reg_cont <= prox_cont;
+            reg_cont   <= prox_cont;
         end
     end
 
     // Lógica de próximo estado e contagem
     always @(*) begin
-        pulso = 0;
-        pronto = 0;
+        pulso     = 1'b0;
+        pronto    = 1'b0;
         prox_cont = reg_cont;
 
         case (reg_estado)
@@ -55,7 +57,7 @@ module gerador_pulso #(
                 end else begin
                     prox_estado = parado;
                 end
-                prox_cont = 0;
+                prox_cont = 32'd0;
             end
 
             contagem: begin
@@ -66,17 +68,26 @@ module gerador_pulso #(
                         prox_estado = final_pulso;
                     end else begin
                         prox_estado = contagem;
-                        prox_cont = reg_cont + 1;
+                        prox_cont   = reg_cont + 1'b1;
                     end
                 end
-                pulso = 1;
+                pulso = 1'b1;
             end
 
             final_pulso: begin
                 prox_estado = parado;
-                pronto = 1;
+                pronto      = 1'b1;
+            end
+
+            default: begin
+                prox_estado = parado;
+                pulso       = 1'b0;
+                pronto      = 1'b0;
+                prox_cont   = 32'd0;
             end
         endcase
     end
 
 endmodule
+
+`default_nettype wire
