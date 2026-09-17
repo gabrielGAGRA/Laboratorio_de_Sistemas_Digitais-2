@@ -11,12 +11,11 @@ module tx_serial_7E1 (
     output wire       db_tick,
     output wire       db_partida,
     output wire       db_saida_serial,
-    output wire [6:0] db_estado
+    output wire [3:0] db_estado
 );
 
     wire       s_reset;
     wire       s_partida;
-    wire       s_partida_ed;
     wire       s_zera;
     wire       s_conta;
     wire       s_carrega;
@@ -47,7 +46,7 @@ module tx_serial_7E1 (
     tx_serial_7E1_uc u_tx_serial_7E1_uc (
         .clock     (clock),
         .reset     (s_reset),
-        .partida   (s_partida_ed),
+        .partida   (s_partida),
         .tick      (s_tick),
         .fim       (s_fim),
         .zera      (s_zera),
@@ -73,14 +72,6 @@ module tx_serial_7E1 (
         .meio    ()
     );
 
-    // Detector de borda para tratar pulsos da partida
-    edge_detector u_edge_detector (
-        .clock (clock),
-        .reset (reset),
-        .sinal (s_partida),
-        .pulso (s_partida_ed)
-    );
-
     // Saida serial
     assign saida_serial = s_saida_serial;
 
@@ -89,12 +80,7 @@ module tx_serial_7E1 (
     assign db_tick         = s_tick;
     assign db_partida      = s_partida;
     assign db_saida_serial = s_saida_serial;
-
-    // Decodificador 7 segmentos para exibicao do estado da UC (HEX0)
-    hexa7seg u_hexa7seg ( 
-        .hexa    (s_estado), 
-        .display (db_estado)
-    );
+    assign db_estado       = s_estado;
 
 endmodule
 

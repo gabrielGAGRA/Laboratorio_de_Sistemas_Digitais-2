@@ -13,7 +13,7 @@ module tx_serial_7E1_tb;
     wire       db_tick_out;
     wire       db_partida_out;
     wire       db_saida_serial_out;
-    wire [6:0] db_estado_out;
+    wire [3:0] db_estado_out;
 
     // Componente sob teste (DUT)
     tx_serial_7E1 u_dut (

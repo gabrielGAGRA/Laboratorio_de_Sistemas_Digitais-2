@@ -1,3 +1,5 @@
+`default_nettype none
+
 /*
  *  Arquivo   : mux_4x1_n.v
  * ----------------------------------------------------------------
@@ -17,12 +19,12 @@
 module mux_4x1_n #(
     parameter BITS = 4
 ) (
-    input  [BITS-1:0] D3,
-    input  [BITS-1:0] D2,
-    input  [BITS-1:0] D1,
-    input  [BITS-1:0] D0,
-    input  [1:0]      SEL,
-    output [BITS-1:0] MUX_OUT
+    input  wire [BITS-1:0] D3,
+    input  wire [BITS-1:0] D2,
+    input  wire [BITS-1:0] D1,
+    input  wire [BITS-1:0] D0,
+    input  wire [1:0]      SEL,
+    output wire [BITS-1:0] MUX_OUT
 );
 
     assign MUX_OUT = (SEL == 2'b11) ? D3 :
@@ -33,3 +35,4 @@ module mux_4x1_n #(
 
 endmodule
 
+`default_nettype wire

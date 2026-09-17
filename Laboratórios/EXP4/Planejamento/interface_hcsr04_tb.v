@@ -13,6 +13,7 @@
  * --------------------------------------------------------------------------
  */
 
+`default_nettype none
 `timescale 1ns/1ns
 
 module interface_hcsr04_tb;
@@ -161,3 +162,5 @@ module interface_hcsr04_tb;
     end
 
 endmodule
+
+`default_nettype wire
