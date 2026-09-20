@@ -14,7 +14,7 @@
 `default_nettype none
 
 module gerador_pulso #(
-    parameter largura = 25
+    parameter LARGURA = 25
 ) (
     input  wire clock,
     input  wire reset,
@@ -25,65 +25,65 @@ module gerador_pulso #(
 );
 
     // Tipos e sinais
-    reg [1:0] reg_estado, prox_estado;
-    reg [31:0] reg_cont, prox_cont;
+    reg [1:0]  estado_q, estado_d;
+    reg [31:0] cont_q, cont_d;
 
     // Parâmetros para os estados
-    localparam [1:0] parado      = 2'b00;
-    localparam [1:0] contagem    = 2'b01;
-    localparam [1:0] final_pulso = 2'b10;
+    localparam [1:0] STATE_PARADO      = 2'b00;
+    localparam [1:0] STATE_CONTAGEM    = 2'b01;
+    localparam [1:0] STATE_FINAL_PULSO = 2'b10;
 
     // Lógica de estado e contagem
     always @(posedge clock or posedge reset) begin
         if (reset) begin
-            reg_estado <= parado;
-            reg_cont   <= 32'd0;
+            estado_q <= STATE_PARADO;
+            cont_q   <= 32'd0;
         end else begin
-            reg_estado <= prox_estado;
-            reg_cont   <= prox_cont;
+            estado_q <= estado_d;
+            cont_q   <= cont_d;
         end
     end
 
     // Lógica de próximo estado e contagem
     always @(*) begin
-        pulso     = 1'b0;
-        pronto    = 1'b0;
-        prox_cont = reg_cont;
+        pulso    = 1'b0;
+        pronto   = 1'b0;
+        cont_d   = cont_q;
 
-        case (reg_estado)
-            parado: begin
+        case (estado_q)
+            STATE_PARADO: begin
                 if (gera) begin
-                    prox_estado = contagem;
+                    estado_d = STATE_CONTAGEM;
                 end else begin
-                    prox_estado = parado;
+                    estado_d = STATE_PARADO;
                 end
-                prox_cont = 32'd0;
+                cont_d = 32'd0;
             end
 
-            contagem: begin
+            STATE_CONTAGEM: begin
                 if (para) begin
-                    prox_estado = parado;
+                    estado_d = STATE_PARADO;
                 end else begin
-                    if (reg_cont == largura - 1) begin
-                        prox_estado = final_pulso;
+                    if (cont_q == LARGURA - 1) begin
+                        estado_d = STATE_FINAL_PULSO;
                     end else begin
-                        prox_estado = contagem;
-                        prox_cont   = reg_cont + 1'b1;
+                        estado_d = STATE_CONTAGEM;
+                        cont_d   = cont_q + 1'b1;
                     end
                 end
                 pulso = 1'b1;
             end
 
-            final_pulso: begin
-                prox_estado = parado;
-                pronto      = 1'b1;
+            STATE_FINAL_PULSO: begin
+                estado_d = STATE_PARADO;
+                pronto   = 1'b1;
             end
 
             default: begin
-                prox_estado = parado;
-                pulso       = 1'b0;
-                pronto      = 1'b0;
-                prox_cont   = 32'd0;
+                estado_d = STATE_PARADO;
+                pulso    = 1'b0;
+                pronto   = 1'b0;
+                cont_d   = 32'd0;
             end
         endcase
     end

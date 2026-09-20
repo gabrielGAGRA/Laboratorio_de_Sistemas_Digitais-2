@@ -28,7 +28,7 @@ module contador_cm_uc (
 );
 
     // Tipos e sinais
-    reg [2:0] Eatual, Eprox;
+    reg [2:0] estado_q, estado_d;
 
     // Parâmetros para os estados
     localparam [2:0] INICIAL     = 3'b000;
@@ -40,50 +40,50 @@ module contador_cm_uc (
     // Memória de estado
     always @(posedge clock or posedge reset) begin
         if (reset)
-            Eatual <= INICIAL;
+            estado_q <= INICIAL;
         else
-            Eatual <= Eprox;
+            estado_q <= estado_d;
     end
 
     // Lógica de próximo estado
     always @(*) begin
-        case (Eatual)
+        case (estado_q)
             INICIAL: begin
                 if (pulso)
-                    Eprox = PREPARA;
+                    estado_d = PREPARA;
                 else
-                    Eprox = INICIAL;
+                    estado_d = INICIAL;
             end
 
             PREPARA: begin
                 if (pulso)
-                    Eprox = ESPERA_TICK;
+                    estado_d = ESPERA_TICK;
                 else
-                    Eprox = FINAL;
+                    estado_d = FINAL;
             end
 
             ESPERA_TICK: begin
                 if (~pulso)
-                    Eprox = FINAL;
+                    estado_d = FINAL;
                 else if (tick)
-                    Eprox = INCREMENTA;
+                    estado_d = INCREMENTA;
                 else
-                    Eprox = ESPERA_TICK;
+                    estado_d = ESPERA_TICK;
             end
 
             INCREMENTA: begin
                 if (~pulso)
-                    Eprox = FINAL;
+                    estado_d = FINAL;
                 else
-                    Eprox = ESPERA_TICK;
+                    estado_d = ESPERA_TICK;
             end
 
             FINAL: begin
-                Eprox = INICIAL;
+                estado_d = INICIAL;
             end
 
             default: begin
-                Eprox = INICIAL;
+                estado_d = INICIAL;
             end
         endcase
     end
@@ -96,7 +96,7 @@ module contador_cm_uc (
         conta_bcd  = 1'b0;
         pronto     = 1'b0;
 
-        case (Eatual)
+        case (estado_q)
             INICIAL: begin
                 // Mantem contadores estaveis
             end

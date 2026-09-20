@@ -23,39 +23,39 @@ module contador_bcd_3digitos (
     output wire       fim
 );
 
-    reg [3:0] s_dig2, s_dig1, s_dig0;
+    reg [3:0] s_dig2_q, s_dig1_q, s_dig0_q;
 
     always @(posedge clock) begin
         if (zera) begin 
-            s_dig0 <= 4'b0000;
-            s_dig1 <= 4'b0000;
-            s_dig2 <= 4'b0000;
+            s_dig0_q <= 4'b0000;
+            s_dig1_q <= 4'b0000;
+            s_dig2_q <= 4'b0000;
         end else if (conta) begin
-            if (s_dig0 == 4'b1001) begin
-                s_dig0 <= 4'b0000;
-                if (s_dig1 == 4'b1001) begin
-                    s_dig1 <= 4'b0000;
-                    if (s_dig2 == 4'b1001) begin
-                        s_dig2 <= 4'b0000;
+            if (s_dig0_q == 4'b1001) begin
+                s_dig0_q <= 4'b0000;
+                if (s_dig1_q == 4'b1001) begin
+                    s_dig1_q <= 4'b0000;
+                    if (s_dig2_q == 4'b1001) begin
+                        s_dig2_q <= 4'b0000;
                     end else begin
-                        s_dig2 <= s_dig2 + 1'b1; 
+                        s_dig2_q <= s_dig2_q + 1'b1; 
                     end
                 end else begin
-                    s_dig1 <= s_dig1 + 1'b1; 
+                    s_dig1_q <= s_dig1_q + 1'b1; 
                 end
             end else begin
-                s_dig0 <= s_dig0 + 1'b1; 
+                s_dig0_q <= s_dig0_q + 1'b1; 
             end
         end
     end
 
     // fim de contagem
-    assign fim = (s_dig2 == 4'b1001 && s_dig1 == 4'b1001 && s_dig0 == 4'b1001) ? 1'b1 : 1'b0; 
+    assign fim = (s_dig2_q == 4'b1001 && s_dig1_q == 4'b1001 && s_dig0_q == 4'b1001) ? 1'b1 : 1'b0; 
 
     // saídas
-    assign digito2 = s_dig2;
-    assign digito1 = s_dig1;
-    assign digito0 = s_dig0;
+    assign digito2 = s_dig2_q;
+    assign digito1 = s_dig1_q;
+    assign digito0 = s_dig0_q;
 
 endmodule
 

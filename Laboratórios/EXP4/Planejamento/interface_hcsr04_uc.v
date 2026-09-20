@@ -27,7 +27,7 @@ module interface_hcsr04_uc (
 );
 
     // Tipos e sinais
-    reg [2:0] Eatual, Eprox;
+    reg [2:0] estado_q, estado_d;
 
     // Parâmetros para os estados
     localparam [2:0] INICIAL       = 3'b000;
@@ -41,53 +41,53 @@ module interface_hcsr04_uc (
     // Estado
     always @(posedge clock or posedge reset) begin
         if (reset) 
-            Eatual <= INICIAL;
+            estado_q <= INICIAL;
         else
-            Eatual <= Eprox; 
+            estado_q <= estado_d; 
     end
 
     // Lógica de próximo estado
     always @(*) begin
-        case (Eatual)
+        case (estado_q)
             INICIAL: begin
                 if (medir)
-                    Eprox = PREPARACAO;
+                    estado_d = PREPARACAO;
                 else
-                    Eprox = INICIAL;
+                    estado_d = INICIAL;
             end
 
             PREPARACAO: begin
-                Eprox = ENVIA_TRIGGER;
+                estado_d = ENVIA_TRIGGER;
             end
 
             ENVIA_TRIGGER: begin
-                Eprox = ESPERA_ECHO;
+                estado_d = ESPERA_ECHO;
             end
 
             ESPERA_ECHO: begin
                 if (echo)
-                    Eprox = MEDIDA;
+                    estado_d = MEDIDA;
                 else
-                    Eprox = ESPERA_ECHO;
+                    estado_d = ESPERA_ECHO;
             end
 
             MEDIDA: begin
                 if (fim_medida)
-                    Eprox = ARMAZENAMENTO;
+                    estado_d = ARMAZENAMENTO;
                 else
-                    Eprox = MEDIDA;
+                    estado_d = MEDIDA;
             end
 
             ARMAZENAMENTO: begin
-                Eprox = FINAL_MEDIDA;
+                estado_d = FINAL_MEDIDA;
             end
 
             FINAL_MEDIDA: begin
-                Eprox = INICIAL;
+                estado_d = INICIAL;
             end
 
             default: begin
-                Eprox = INICIAL;
+                estado_d = INICIAL;
             end
         endcase
     end
@@ -100,7 +100,7 @@ module interface_hcsr04_uc (
         pronto    = 1'b0;
         db_estado = 4'b1110;
 
-        case (Eatual)
+        case (estado_q)
             INICIAL: begin
                 db_estado = 4'b0000;
             end

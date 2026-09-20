@@ -28,10 +28,10 @@ module interface_hcsr04_fd (
     // Sinais internos
     wire [11:0] s_medida;
 
-    // (U1) pulso de 10us (500 clocks de 20ns a 50MHz)
+    // (u_gerador_pulso) pulso de 10us (500 clocks de 20ns a 50MHz)
     gerador_pulso #(
-        .largura(500) 
-    ) U1 (
+        .LARGURA(500) 
+    ) u_gerador_pulso (
         .clock (clock  ),
         .reset (zera   ),
         .gera  (gera   ),
@@ -40,11 +40,11 @@ module interface_hcsr04_fd (
         .pronto(       )
     );
 
-    // (U2) medida em cm (R=2941 clocks, N=12)
+    // (u_contador_cm) medida em cm (R=2941 clocks, N=12)
     contador_cm #(
         .R(2941), 
         .N(12  )
-    ) U2 (
+    ) u_contador_cm (
         .clock  (clock         ),
         .reset  (zera          ),
         .pulso  (pulso         ),
@@ -55,10 +55,10 @@ module interface_hcsr04_fd (
         .pronto (fim_medida    )
     );
 
-    // (U3) registrador de saida (12 bits BCD)
+    // (u_registrador) registrador de saida (12 bits BCD)
     registrador_n #(
         .N(12)
-    ) U3 (
+    ) u_registrador (
         .clock (clock    ),
         .clear (1'b0     ),
         .enable(registra ),
