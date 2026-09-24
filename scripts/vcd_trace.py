@@ -1,9 +1,9 @@
 """
-vcd_trace.py - LLM-Optimized VCD Waveform Trace Analysis Tool
+VCD Waveform Trace Analysis Tool
 
 Parses IEEE 1364 Value Change Dump (VCD) files and prints structured,
 cycle-accurate signal tables, event logs, ASCII waveforms, and anomaly
-diagnostics optimized for LLM reasoning and self-correction.
+diagnostics optimized for reasoning and self-correction.
 """
 
 import sys

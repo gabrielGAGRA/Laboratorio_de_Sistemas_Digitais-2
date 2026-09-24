@@ -178,7 +178,7 @@ module exp4_trena_tb;
         // Inicializacao dos sinais
         clock_in    = 1'b0;
         reset_in    = 1'b0;
-        mensurar_in = 1'b0;
+        mensurar_in = 1'b1; // Repouso do botao (ativo em baixo)
         echo_in     = 1'b0;
         errors      = 0;
 
@@ -201,11 +201,11 @@ module exp4_trena_tb;
                      (casos_esperados[caso][11:8]*100 + casos_esperados[caso][7:4]*10 + casos_esperados[caso][3:0]),
                      casos_tempo[caso]);
 
-            // 4.2 Envia pulso mensurar (duracao de 2 ciclos de clock)
+            // 4.2 Envia pulso mensurar (ativo em baixo no botao, duracao de 2 ciclos de clock)
             @(negedge clock_in);
-            mensurar_in = 1'b1;
-            #(2 * CLOCK_PERIOD);
             mensurar_in = 1'b0;
+            #(2 * CLOCK_PERIOD);
+            mensurar_in = 1'b1;
 
             // Espera trigger subir e descer
             wait (trigger_out == 1'b1);

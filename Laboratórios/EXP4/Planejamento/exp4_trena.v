@@ -31,11 +31,11 @@ module exp4_trena (
     wire        s_pronto_sensor;
     wire        s_pronto_serial;
 
-    // Detector de borda para o sinal mensurar (padrao EXP3)
+    // Detector de borda para o sinal mensurar (ativo em baixo no botao da placa)
     edge_detector u_edge_detector (
         .clock (clock),
         .reset (reset),
-        .sinal (mensurar),
+        .sinal (~mensurar),
         .pulso (s_mensurar)
     );
 
@@ -95,7 +95,7 @@ module exp4_trena (
     assign trigger         = s_trigger;
     assign saida_serial    = s_saida_serial;
     assign pronto          = s_pronto;
-    assign db_mensurar     = mensurar;
+    assign db_mensurar     = ~mensurar;
     assign db_echo         = echo;
     assign db_trigger      = s_trigger;
     assign db_saida_serial = s_saida_serial;

@@ -1,17 +1,11 @@
-"""Strict Verilog-2001 & Intel Cyclone V RTL Linter.
-  *. Tools:
+"""
+REGRAS DO LINTER:
+  * Helper Tools:
      - Icarus Verilog (iverilog): Compiler elaboration pre-flight check
        (iverilog -Wall -g2001 -tnull -y <dir> -I <dir> <file>) to validate syntax,
        types, port connections, and undeclared signals.
      - Verilator: Static RTL analysis (verilator --lint-only -Wall +1364-2001ext+v)
        on synthesizable modules (skipped for testbench files).
-
-  **. Linter Parameters:
-     - Accepts files or directories (recursively scanning for .v and .vh).
-     - --exclude: Substring or regex patterns to bypass legacy/unrelated dirs.
-     - --no-iverilog: Disable Icarus Verilog compiler check.
-     - --no-verilator: Disable Verilator static analysis check.
-     - --strict: Return exit code 1 if any error violation occurs.
 
   1. Structural Rules (Verilog-2001):
      - FILE_EXT_SYSTEMVERILOG: Rejects SystemVerilog extensions (.sv); requires .v/.vh.
@@ -53,6 +47,15 @@
        Allowed only in top-level chip wrappers.
 """
 
+"""
+  Linter Parameters:
+     - Accepts files or directories (recursively scanning for .v and .vh).
+     - --exclude: Substring or regex patterns to bypass legacy/unrelated dirs.
+     - --no-iverilog: Disable Icarus Verilog compiler check.
+     - --no-verilator: Disable Verilator static analysis check.
+     - --strict: Return exit code 1 if any error violation occurs.
+"""
+
 import argparse
 import re
 import shutil
@@ -64,12 +67,10 @@ from pathlib import Path
 from typing import List, Optional, Pattern, Tuple
 
 
-
 class Severity(Enum):
     ERROR = "ERROR"
     WARNING = "WARNING"
     INFO = "INFO"
-
 
 @dataclass
 class LintViolation:
@@ -83,9 +84,9 @@ class LintViolation:
 
     def __str__(self) -> str:
         color_map = {
-            Severity.ERROR: "\033[91m", # Red
-            Severity.WARNING: "\033[93m", # Yellow
-            Severity.INFO: "\033[94m", # Green
+            Severity.ERROR: "\033[91m", # Vermelho
+            Severity.WARNING: "\033[93m", # Amarelo
+            Severity.INFO: "\033[94m", # Verde
         }
         sev = f"{color_map.get(self.severity, '')}{self.severity.value}\033[0m"
         loc = f"{self.file_path}:{self.line_num}:{self.col_num}" if self.line_num > 0 else str(self.file_path)
@@ -94,7 +95,7 @@ class LintViolation:
             out += f"\n    \033[90m{self.line_num} | \033[0m{self.snippet.strip()}"
         return out
 
-# Função de ignorar comentários e strings
+# Função para ignorar comentários e strings
 def mask_comments_and_strings(source: str) -> str:
     """Masks comments and strings with spaces, preserving line and column offsets."""
     def _repl(m):
@@ -103,7 +104,7 @@ def mask_comments_and_strings(source: str) -> str:
     return re.sub(r"//[^\r\n]*|/\*[\s\S]*?\*/|\"(?:\\.|[^\"\\\r\n])*\"", _repl, source)
 
 
-# Variáveis de padrões pesquisados de violação
+# Variáveis de padrões pesquisados pelo Linter
 RE_MODULE = re.compile(r"\bmodule\s+([a-zA-Z_0-9]+)\b")
 RE_FSM_PARAM = re.compile(
     r"^\s*parameter\s+(?:(?:\[[^\]]+\]|\w+)\s+)?([A-Z0-9_]*(?:IDLE|WAIT|STATE|ST_|MODO|ESPERA|PROX|INIC|FIM)[A-Z0-9_]*)\s*="
