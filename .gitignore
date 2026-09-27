@@ -3,6 +3,9 @@ local/
 .qar
 *.zip
 
+*.vcd
+*.vvp
+
 .env
 venv
 .venv

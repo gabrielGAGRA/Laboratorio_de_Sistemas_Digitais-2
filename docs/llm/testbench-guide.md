@@ -1,7 +1,5 @@
 # Testbench Verification & Simulation Guide
 
-This guide establishes standards for writing deterministic, self-checking Verilog-2001 testbenches and executing simulations using Icarus Verilog or ModelSim.
-
 ---
 
 ## 1. Golden Rules of RTL Verification

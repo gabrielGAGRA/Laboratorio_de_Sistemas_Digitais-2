@@ -1,0 +1,209 @@
+Listed directory EXP5
+Listed directory Planejamento
+Viewed rom_angulos_8x24.v:1-30
+Viewed testbench-sonar.txt:1-25
+Listed directory Laborat%C3%B3rios
+Listed directory EXP3
+Listed directory Planejamento
+Listed directory EXP4
+Listed directory Relat%C3%B3rio
+Listed directory EXP2
+Listed directory Planejamento
+Listed directory EXP1
+Listed directory Relat%C3%B3rio
+Viewed circuito_pwm.v:1-65
+Searched for "controle_servo"
+Viewed controle_servo_tb.v:1-81
+Viewed interface_hcsr04.v:1-66
+Viewed tx_serial_7E1.v:1-87
+Viewed exp4_desafio.v:1-138
+Viewed exp4_desafio_fd.v:1-108
+Viewed SKILL.md:1-27
+
+# Plan: Sistema de Sonar - Planejamento EXP5
+
+## Goal
+Projetar a arquitetura completa do Sistema de Sonar para a bancada do Laboratório Digital (FPGA Cyclone V DE0-CV) e simulação ModelSim/Icarus Verilog, cumprindo a especificação do Roteiro e das Dicas de Projeto da EXP5. O sistema realiza varredura angular contínua em 8 posições (20° a 160° com "movimentação vai"), mede distâncias com o sensor ultrassônico HC-SR04, transmite os pacotes seriais formatados como `AAA,DDD#` a 115200 bauds (7E1) e atualiza o servomotor a cada 2 segundos.
+
+## Approach
+
+### 1. Hierarquia e Estrutura dos Módulos
+
+Adotaremos a divisão em dois níveis de top-level:
+- `sonar.v`: Núcleo estritamente padronizado conforme a Figura 1 do roteiro para simulação limpa em testbench.
+- `exp5_sonar.v`: Top-level para a placa DE0-CV, instanciando `sonar.v` e conectando chaves, botões, decodificadores para displays de 7 segmentos (`hexa7seg`) e LEDs de status.
+
+A hierarquia estrutural completa será:
+```
+exp5_sonar (Top FPGA)
+└── sonar (DUT / Núcleo do Sistema)
+    ├── sonar_uc (Máquina de Estados de Controle Geral)
+    └── sonar_fd (Fluxo de Dados Estrutural)
+        ├── contador_m [M=8, N=3] (Posição do servomotor 000 a 111)
+        ├── rom_angulos_8x24 (Conversão de posição [2:0] para ângulo ASCII [23:0])
+        ├── controle_servo_8 (Geração de sinal PWM para 8 ângulos)
+        ├── interface_hcsr04 (Interface com HC-SR04: trigger, eco e medida BCD)
+        │   ├── interface_hcsr04_uc
+        │   └── interface_hcsr04_fd (contador_cm, gerador_pulso, registrador_n)
+        ├── transmissor_sonar (Novo módulo: envio em bloco de 8 caracteres ASCII)
+        │   ├── transmissor_sonar_uc
+        │   ├── transmissor_sonar_fd (multiplexador ASCII 8x1 e contador 0 a 7)
+        │   └── tx_serial_7E1 (Transmissor serial assíncrono 115200 7E1 refatorado)
+        │       ├── tx_serial_7E1_uc
+        │       ├── tx_serial_7E1_fd
+        │       └── contador_m (gerador de tick de baud rate)
+        └── contador_m [M=100M / 10k] (Temporizador de 2 s / 200 µs de repouso)
+```
+
+---
+
+### 2. Refatoração dos Componentes das Experiências Anteriores
+
+#### A) `controle_servo_8.v` (Origem: EXP1 / `circuito_pwm.v`)
+- **Interface**:
+  - Entradas: `clock`, `reset`, `posicao` [2:0]
+  - Saídas: `controle`, `db_reset`, `db_posicao` [2:0], `db_controle`
+- **Operação**:
+  - Período: $20\text{ ms} = 1.000.000\text{ ciclos}$ de clock a $50\text{ MHz}$.
+  - Largura de pulso por posição angular (Tabela 1):
+    - `000` (20°): 35.000 ciclos (0,700 ms)
+    - `001` (40°): 45.700 ciclos (0,914 ms)
+    - `010` (60°): 56.450 ciclos (1,129 ms)
+    - `011` (80°): 67.150 ciclos (1,343 ms)
+    - `100` (100°): 77.850 ciclos (1,557 ms)
+    - `101` (120°): 88.550 ciclos (1,771 ms)
+    - `110` (140°): 99.300 ciclos (1,986 ms)
+    - `111` (160°): 110.000 ciclos (2,200 ms)
+  - `assign db_reset = reset`, `assign db_posicao = posicao`, `assign db_controle = controle`.
+
+#### B) `tx_serial_7E1.v` (Origem: EXP4 / `tx_serial_7E1.v`)
+- **Refatoração conforme Figura 4 do Roteiro**:
+  - Remoção definitiva de detectores de borda e decodificadores `hexa7seg` internos.
+  - Eliminação das portas obsoletas `db_clock` e `db_tick`.
+  - Interface externa resultante:
+    `clock`, `reset`, `partida`, `dados_ascii` [6:0], `saida_serial`, `pronto`, `db_partida`, `db_saida_serial`, `db_estado` [3:0].
+
+#### C) `interface_hcsr04.v` (Origem: EXP4 / `interface_hcsr04.v`)
+- **Refatoração conforme Figura 5 do Roteiro**:
+  - Adição direta das portas de depuração: `db_reset` e `db_medir`.
+  - Interface externa resultante:
+    `clock`, `reset`, `medir`, `echo`, `trigger`, `medida` [11:0], `pronto`, `db_reset`, `db_medir`, `db_estado` [3:0].
+
+---
+
+### 3. Novo Módulo Intermediário: `transmissor_sonar`
+
+Este módulo gerencia o empacotamento e a transmissão sequencial dos 8 caracteres ASCII sem alterar a estrutura interna de `tx_serial_7E1`.
+
+- **Entradas**: `clock`, `reset`, `transmitir` (pulso de início), `angulo` [23:0], `distancia` [11:0]
+- **Saídas**: `saida_serial`, `pronto` (fim da transmissão do bloco de 8 caracteres), `db_partida`, `db_saida_serial`, `db_estado` [3:0]
+- **Mapeamento dos 8 Caracteres ASCII**:
+  - Caractere 0: `angulo[22:16]` (ASCII centena do ângulo)
+  - Caractere 1: `angulo[14:8]` (ASCII dezena do ângulo)
+  - Caractere 2: `angulo[6:0]` (ASCII unidade do ângulo)
+  - Caractere 3: `7'h2C` (vírgula `,` em ASCII)
+  - Caractere 4: `{3'b011, distancia[11:8]}` (ASCII centena BCD da distância)
+  - Caractere 5: `{3'b011, distancia[7:4]}` (ASCII dezena BCD da distância)
+  - Caractere 6: `{3'b011, distancia[3:0]}` (ASCII unidade BCD da distância)
+  - Caractere 7: `7'h23` (terminador `#` em ASCII)
+- **FSM Interna (`transmissor_sonar_uc`)**:
+  - `IDLE`: Aguarda `transmitir = 1`. Zera índice de caractere.
+  - `SEND`: Dispara `partida = 1` para o `tx_serial_7E1`.
+  - `WAIT_TX`: Aguarda `pronto` do transmissor serial.
+  - `NEXT`: Incrementa contador de caractere. Se índice atingir 7, transita para `DONE`; senão retorna a `SEND`.
+  - `DONE`: Pulsa `pronto = 1` e retorna a `IDLE`.
+
+---
+
+### 4. Arquitetura do Circuito Principal: `sonar`
+
+#### Unidade de Controle (`sonar_uc`)
+A FSM segue o pseudocódigo e as diretrizes de sincronismo:
+- `INICIAL` (4'b0000): Aguarda `ligar = 1`. Zera contador de posição (`posicao = 000`), zera temporizadores.
+- `PREPARA_SERVO` (4'b0001): Garante a posição do servomotor e reseta o temporizador de intervalo.
+- `ESPERA_TIMER` (4'b0010): Aguarda `fim_timer` (2 segundos ou 200 µs em simulação) para permitir a acomodação mecânica do servo. Se `ligar = 0`, retorna a `INICIAL`.
+- `ENVIA_TRIGGER` (4'b0011): Dispara a medição ultrassônica (`medir = 1` para `interface_hcsr04`).
+- `ESPERA_MEDIDA` (4'b0100): Aguarda `pronto` do sensor ultrassônico (`fim_medida = 1`).
+- `ENVIA_SERIAL` (4'b0101): Dispara a transmissão do bloco de 8 caracteres (`transmitir = 1` para `transmissor_sonar`).
+- `ESPERA_SERIAL` (4'b0110): Aguarda término da transmissão (`pronto_tx = 1`).
+- `PASSO_POSICAO` (4'b0111): Pulsa `conta_posicao = 1` (avança 1 passo: `000` $\to$ `001` ... `111` $\to$ `000`), gera pulso de 1 ciclo em `fim_posicao = 1`. Retorna para `ESPERA_TIMER` se `ligar = 1`, ou `INICIAL` se `ligar = 0`.
+
+#### Fluxo de Dados (`sonar_fd`)
+- **Parametrização**:
+  - `parameter M_INTERVALO = 100_000_000` (padrão FPGA: 2 segundos a 50 MHz).
+  - `parameter N_INTERVALO = 27` (largura em bits para acomodar $10^8$).
+  - Em simulação, o testbench sobrescreverá para `M_INTERVALO = 10_000` ($200\text{ }\mu\text{s}$), permitindo que todo o ciclo de 8 posições execute em milissegundos.
+- **Movimentação do Servo**:
+  - Contador de módulo 8 (`contador_m #( .M(8), .N(3) )`) gerando `posicao[2:0]`. Ao passar de `111`, o estouro natural do contador o recoloca em `000`, implementando exatamente a "movimentação vai" solicitada.
+
+---
+
+### 5. Top-Level da Placa FPGA: `exp5_sonar`
+
+Mapeia a pinagem da placa DE0-CV (Tabela 2 do roteiro) e adiciona os recursos de depuração solicitados no item 2.2:
+- Entradas:
+  - `CLOCK_50` (Pino M9) $\to$ `clock`
+  - `SW[0]` (Pino U13) $\to$ `reset`
+  - `SW[1]` (Pino V13) $\to$ `ligar`
+  - `GPIO_1[3]` (Pino V18) $\to$ `echo`
+- Saídas Funcionais:
+  - `GPIO_1[1]` (Pino W19) $\to$ `trigger`
+  - `GPIO_0[35]` (Pino B15) $\to$ `pwm`
+  - `GPIO_0[1]` (Pino C16) $\to$ `saida_serial`
+  - `GPIO_1[35]` (Pino H15) $\to$ `fim_posicao`
+- Sinais de Depuração na Bancada:
+  - `HEX0` a `HEX2`: Distância medida em BCD (cm) usando `hexa7seg`.
+  - `HEX3`: Apagado / hífen.
+  - `HEX4`: Posição atual do servo (`posicao[2:0]`).
+  - `HEX5`: Estado atual da FSM principal (`db_estado[3:0]`).
+  - `LEDR[0]`: `fim_posicao`
+  - `LEDR[1]`: `ligar`
+  - `LEDR[2]`: `trigger`
+  - `LEDR[3]`: `echo`
+  - `LEDR[4]`: Transmissão serial ativa
+
+---
+
+### 6. Resposta Planejada para a Questão Teórica (Item 2.1 e)
+
+**Questão**:
+"Como o Sistema de Sonar de seu grupo irá se comportar se o sensor de distância não devolver o sinal echo em qualquer posição da varredura? Se o funcionamento for comprometido, como você sugere melhorar o projeto para evitar esse problema?"
+
+**Resposta Planejada**:
+No projeto atual, a unidade de controle do módulo `interface_hcsr04` transita para o estado de contagem do eco ao detectar a borda de subida e fica aguardando indefinidamente a borda de descida de `echo` para acionar `fim_medida` e emitir `pronto`. Se o pulso de eco for perdido (objeto fora de alcance, absorção acústica ou desconexão física), a FSM do sensor nunca sinaliza `pronto`, congelando o `sonar_uc` no estado `ESPERA_MEDIDA`. Como consequência, o sonar para de transmitir dados seriais e o servomotor não avança para as próximas posições.
+
+**Proposta de Melhoria**:
+Implementar um temporizador de *watchdog* (timeout) dentro da `interface_hcsr04`. O alcance máximo do HC-SR04 é de aproximadamente 4 metros, correspondendo a um tempo de eco de cerca de 30 ms a 38 ms. Se nenhum eco ou término de eco for detectado dentro de 35 ms após o trigger:
+1. O circuito interrompe a contagem e força `distancia` para um valor sentinela (por exemplo, `999` cm ou `000` cm).
+2. Emite o pulso de `pronto`, destravando o sistema para continuar a transmissão serial e permitir o avanço do servomotor para as posições seguintes.
+
+---
+
+### 7. Plano de Verificação por Testbenches (TDD)
+
+Trabalharemos em fatias verticais, validando cada módulo individualmente antes da integração:
+1. `controle_servo_8_tb.v`: Varre posições `000` a `111` e valida as larguras dos 8 pulsos PWM contra a Tabela 1.
+2. `tx_serial_7E1_tb.v`: Valida o envio de caracteres individuais no protocolo 7E1 a 115200 bauds.
+3. `interface_hcsr04_tb.v`: Simula resposta de eco com larguras calibradas e confere medida BCD e `pronto`.
+4. `transmissor_sonar_tb.v`: Aplica estímulo de ângulo (`120°`) e distância (`017 cm`) e verifica se a sequência transmitida é exatamente `120,017#`.
+5. `sonar_tb.v`: Segue o roteiro de `testbench-sonar.txt` com `M_INTERVALO = 10_000` (200 µs), simulando varredura completa das 8 posições com ecos de distâncias variadas, verificando a rotação, o trigger, o envio serial e a geração de `fim_posicao`.
+
+## Risks and Mitigation
+
+- **Tempo Excessivo em Simulação**: Se o temporizador de 2 segundos for simulado com 50 MHz (100 milhões de ciclos), cada ciclo de medição demoraria minutos para simular.
+  *Mitigação*: Utilização do parâmetro `M_INTERVALO = 10_000` (200 µs) no testbench, mantendo o valor padrão de 100.000.000 para a síntese na placa DE0-CV.
+- **Temporização Serial entre Bytes**: Disparo de novo byte antes do término do anterior.
+  *Mitigação*: A FSM do `transmissor_sonar` só avançará para o próximo caractere após a borda de término / sinal `pronto` de `tx_serial_7E1`.
+- **Incompatibilidade com o Sketch Processing**: O software Processing espera 8 caracteres ASCII na taxa 115200 7E1.
+  *Mitigação*: Validar o framing no testbench bit a bit antes de ir para a bancada.
+
+## Migration and Rollout
+
+1. Obter sua aprovação formal sobre este plano de arquitetura.
+2. Copiar e refatorar os arquivos base de `EXP1`, `EXP2` e `EXP4` diretamente para `Laboratórios/EXP5/Planejamento`.
+3. Implementar e testar `controle_servo_8`, `tx_serial_7E1` e `interface_hcsr04`.
+4. Implementar e simular `transmissor_sonar`.
+5. Implementar `sonar_uc`, `sonar_fd`, `sonar` e `exp5_sonar`.
+6. Simular o sistema completo com `sonar_tb.v` e coletar formas de onda para o relatório.
+
+Solicito sua avaliação e aprovação para prosseguirmos com a implementação deste plano.

@@ -1,17 +1,4 @@
-# Verilog-2001 RTL Engineering Rules
-
-Synthesizable Verilog-2001 (IEEE Std 1364-2001) standards for Intel Cyclone V FPGAs synthesized with Intel Quartus Prime Version 20.1.1 Lite Edition.
-
----
-## Editing this Doc
-
-- Objective syntax, naming patterns, compiler directives, and banned language constructs are automated by `scripts/lint_verilog.py`. Use this document for architectural and semantic decisions that a linter or compiler cannot enforce reliably. 
-- Automate what is objective; document what needs microarchitectural judgment, rationale, or an exception process.
-
-### Modal verbs
-- **NEVER / ALWAYS** — hard constraints; hardware malfunction, simulation-synthesis mismatch, or synthesis failure risk.
-- **Prefer / Avoid** — default patterns when both work; follow unless timing closure, routing congestion, or FPGA resource limits demand otherwise.
-- *Why*: add a brief *Why* only when a rule deliberately counters a common online tutorial default or needs FPGA microarchitectural rationale.
+# Synthesizable Verilog-2001 (IEEE Std 1364-2001) standards for Intel Cyclone V FPGAs synthesized with Intel Quartus Prime Version 20.1.1 Lite Edition.
 
 ---
 
