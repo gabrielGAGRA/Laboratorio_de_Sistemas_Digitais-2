@@ -28,41 +28,41 @@ module controle_servo_8 #(
     output wire       db_controle
 );
 
-    reg [31:0] contagem;
-    reg [31:0] largura_pwm;
-    reg        s_controle;
+    reg [31:0] contagem_q;
+    reg [31:0] largura_pwm_q;
+    reg        s_controle_q;
 
     always @(posedge clock or posedge reset) begin
         if (reset) begin
-            contagem    <= 32'd0;
-            s_controle  <= 1'b0;
-            largura_pwm <= LARGURA_000;
+            contagem_q    <= 32'd0;
+            s_controle_q  <= 1'b0;
+            largura_pwm_q <= LARGURA_000;
         end else begin
-            s_controle <= (contagem < largura_pwm);
+            s_controle_q <= (contagem_q < largura_pwm_q);
 
-            if (contagem == CONF_PERIODO - 1) begin
-                contagem <= 32'd0;
+            if (contagem_q == CONF_PERIODO - 32'd1) begin
+                contagem_q <= 32'd0;
                 case (posicao)
-                    3'b000:  largura_pwm <= LARGURA_000;
-                    3'b001:  largura_pwm <= LARGURA_001;
-                    3'b010:  largura_pwm <= LARGURA_010;
-                    3'b011:  largura_pwm <= LARGURA_011;
-                    3'b100:  largura_pwm <= LARGURA_100;
-                    3'b101:  largura_pwm <= LARGURA_101;
-                    3'b110:  largura_pwm <= LARGURA_110;
-                    3'b111:  largura_pwm <= LARGURA_111;
-                    default: largura_pwm <= LARGURA_000;
+                    3'b000:  largura_pwm_q <= LARGURA_000;
+                    3'b001:  largura_pwm_q <= LARGURA_001;
+                    3'b010:  largura_pwm_q <= LARGURA_010;
+                    3'b011:  largura_pwm_q <= LARGURA_011;
+                    3'b100:  largura_pwm_q <= LARGURA_100;
+                    3'b101:  largura_pwm_q <= LARGURA_101;
+                    3'b110:  largura_pwm_q <= LARGURA_110;
+                    3'b111:  largura_pwm_q <= LARGURA_111;
+                    default: largura_pwm_q <= LARGURA_000;
                 endcase
             end else begin
-                contagem <= contagem + 32'd1;
+                contagem_q <= contagem_q + 32'd1;
             end
         end
     end
 
-    assign controle    = s_controle;
+    assign controle    = s_controle_q;
     assign db_reset    = reset;
     assign db_posicao  = posicao;
-    assign db_controle = s_controle;
+    assign db_controle = s_controle_q;
 
 endmodule
 

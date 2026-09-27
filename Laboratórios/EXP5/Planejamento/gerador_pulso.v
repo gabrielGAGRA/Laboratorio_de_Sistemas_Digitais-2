@@ -64,7 +64,7 @@ module gerador_pulso #(
                 if (para) begin
                     estado_d = STATE_PARADO;
                 end else begin
-                    if (cont_q == LARGURA - 1) begin
+                    if (cont_q == LARGURA - 32'd1) begin
                         estado_d = STATE_FINAL_PULSO;
                     end else begin
                         estado_d = STATE_CONTAGEM;

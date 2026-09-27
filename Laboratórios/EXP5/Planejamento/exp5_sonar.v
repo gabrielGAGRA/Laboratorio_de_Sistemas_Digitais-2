@@ -32,13 +32,31 @@ module exp5_sonar (
     wire [11:0] s_medida;
     wire [3:0]  s_estado;
 
+    // Sincronizador de reset de 2 estagios para prevencao de metaestabilidade
+    // e cumprimento dos tempos de recovery/removal no clock de 50 MHz
+    reg reset_sync_1_q;
+    reg reset_sync_2_q;
+    wire s_reset_sinc;
+
+    always @(posedge clock or posedge reset) begin
+        if (reset) begin
+            reset_sync_1_q <= 1'b1;
+            reset_sync_2_q <= 1'b1;
+        end else begin
+            reset_sync_1_q <= 1'b0;
+            reset_sync_2_q <= reset_sync_1_q;
+        end
+    end
+
+    assign s_reset_sinc = reset_sync_2_q;
+
     // Instanciacao do nucleo do Sonar
     sonar #(
         .M_INTERVALO(100_000_000), // 2 segundos a 50 MHz
         .N_INTERVALO(27)
     ) u_sonar (
         .clock        (clock),
-        .reset        (reset),
+        .reset        (s_reset_sinc),
         .ligar        (ligar),
         .echo         (echo),
         .trigger      (trigger),
