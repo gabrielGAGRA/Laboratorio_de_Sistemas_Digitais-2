@@ -12,6 +12,7 @@ module sonar_tb;
     wire       pwm_out;
     wire       saida_serial_out;
     wire       fim_posicao_out;
+    wire [2:0] db_posicao_out;
 
     integer caso;
     integer errors = 0;
@@ -35,8 +36,20 @@ module sonar_tb;
         .trigger      (trigger_out),
         .pwm          (pwm_out),
         .saida_serial (saida_serial_out),
-        .fim_posicao  (fim_posicao_out)
+        .fim_posicao  (fim_posicao_out),
+        .db_posicao   (db_posicao_out)
     );
+
+    // Reduz o periodo PWM para facilitar a visualizacao na simulacao.
+    defparam dut.u_fd.u_controle_servo.CONF_PERIODO = 1000;
+    defparam dut.u_fd.u_controle_servo.LARGURA_000 = 35;
+    defparam dut.u_fd.u_controle_servo.LARGURA_001 = 46;
+    defparam dut.u_fd.u_controle_servo.LARGURA_010 = 56;
+    defparam dut.u_fd.u_controle_servo.LARGURA_011 = 67;
+    defparam dut.u_fd.u_controle_servo.LARGURA_100 = 78;
+    defparam dut.u_fd.u_controle_servo.LARGURA_101 = 89;
+    defparam dut.u_fd.u_controle_servo.LARGURA_110 = 99;
+    defparam dut.u_fd.u_controle_servo.LARGURA_111 = 110;
 
     // 3. Definicao dos casos de teste (8 posicoes com diferentes larguras de pulso echo)
     localparam NUM_CASOS = 8;
