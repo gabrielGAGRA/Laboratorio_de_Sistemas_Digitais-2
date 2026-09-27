@@ -12,3 +12,4 @@ description: >
 - **Synthesis Toolchain:** Quartus Prime - Intel FPGA Edition.
 - **Simulation:** Icarus Verilog / ModelSim.
 - **Architecture:** Synchronous Digital Design. Top-Level to Control Unit FSM + Datapath to Submodules & M10K Memory.
+*Use python, not python3 commands.

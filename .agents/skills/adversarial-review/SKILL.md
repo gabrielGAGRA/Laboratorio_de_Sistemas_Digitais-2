@@ -13,7 +13,7 @@ An adversarial reviewer acts as fresh eyes on the work: reading the diff (read-o
 
 ## Context isolation
 
-Use a fresh local subagent whenever the environment provides one. Give it the approved task/plan contract if one exists, the diff, and only the repository context needed to test a hypothesis. If unavailable, use a separate new chat with that limited context. Same-session review is always prohibited.
+Use a fresh local subagent. Give it the approved task/plan contract if one exists, the diff, and only the repository context needed to test a hypothesis.
 
 ## Workflow
 
