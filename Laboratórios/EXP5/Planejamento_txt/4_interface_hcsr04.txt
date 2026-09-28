@@ -1,0 +1,704 @@
+// ============================================================================
+// PACOTE CONSOLIDADO: 4_interface_hcsr04.txt
+// Arquivos incluidos (7):
+//   - interface_hcsr04.v
+//   - interface_hcsr04_fd.v
+//   - interface_hcsr04_uc.v
+//   - contador_cm.v
+//   - contador_cm_fd.v
+//   - contador_cm_uc.v
+//   - interface_hcsr04_tb.v
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// ARQUIVO: interface_hcsr04.v
+// ----------------------------------------------------------------------------
+
+`default_nettype none
+
+/* --------------------------------------------------------------------------
+ *  Arquivo   : interface_hcsr04.v
+ * --------------------------------------------------------------------------
+ *  Descricao : Circuito de interface com sensor ultrassonico de distancia HC-SR04
+ *              Versao refatorada para o Sistema de Sonar (EXP5).
+ * --------------------------------------------------------------------------
+ */
+
+module interface_hcsr04 (
+    input  wire        clock,
+    input  wire        reset,
+    input  wire        medir,
+    input  wire        echo,
+    output wire        trigger,
+    output wire [11:0] medida,
+    output wire        pronto,
+    output wire        db_reset,
+    output wire        db_medir,
+    output wire [3:0]  db_estado
+);
+
+    // Sinais internos
+    wire        s_zera;
+    wire        s_gera;
+    wire        s_registra;
+    wire        s_fim_medida;
+    wire [11:0] s_medida;
+    wire [3:0]  s_estado;
+
+    // Unidade de controle
+    interface_hcsr04_uc u_uc (
+        .clock     (clock),
+        .reset     (reset),
+        .medir     (medir),
+        .echo      (echo),
+        .fim_medida(s_fim_medida),
+        .zera      (s_zera),
+        .gera      (s_gera),
+        .registra  (s_registra),
+        .pronto    (pronto),
+        .db_estado (s_estado)
+    );
+
+    // Fluxo de dados
+    interface_hcsr04_fd u_fd (
+        .clock     (clock),
+        .pulso     (echo), 
+        .zera      (s_zera),
+        .gera      (s_gera),
+        .registra  (s_registra),
+        .fim_medida(s_fim_medida),
+        .trigger   (trigger),
+        .fim       (),  // (desconectado)
+        .distancia (s_medida)
+    );
+
+    // Atribuicao de saidas
+    assign medida    = s_medida;
+    assign db_reset  = reset;
+    assign db_medir  = medir;
+    assign db_estado = s_estado;
+
+endmodule
+
+`default_nettype wire
+
+// ----------------------------------------------------------------------------
+// ARQUIVO: interface_hcsr04_fd.v
+// ----------------------------------------------------------------------------
+
+/* --------------------------------------------------------------------------
+ *  Arquivo   : interface_hcsr04_fd.v
+ * --------------------------------------------------------------------------
+ *  Descricao : fluxo de dados do circuito de interface com sensor ultrassonico
+ *              de distancia HC-SR04
+ *              
+ * --------------------------------------------------------------------------
+ *  Revisoes  :
+ *      Data        Versao  Autor             Descricao
+ *      07/09/2024  1.0     Edson Midorikawa  versao em Verilog
+ * --------------------------------------------------------------------------
+ */
+
+`default_nettype none
+
+module interface_hcsr04_fd (
+    input  wire        clock,
+    input  wire        pulso,
+    input  wire        zera,
+    input  wire        gera,
+    input  wire        registra,
+    output wire        fim_medida,
+    output wire        trigger,
+    output wire        fim,
+    output wire [11:0] distancia
+);
+
+    // Sinais internos
+    wire [11:0] s_medida;
+
+    // (u_gerador_pulso) pulso de 10us (500 clocks de 20ns a 50MHz)
+    gerador_pulso #(
+        .LARGURA(500) 
+    ) u_gerador_pulso (
+        .clock (clock  ),
+        .reset (zera   ),
+        .gera  (gera   ),
+        .para  (1'b0   ), 
+        .pulso (trigger),
+        .pronto(       )
+    );
+
+    // (u_contador_cm) medida em cm (R=2941 clocks, N=12)
+    contador_cm #(
+        .R(2941), 
+        .N(12  )
+    ) u_contador_cm (
+        .clock  (clock         ),
+        .reset  (zera          ),
+        .pulso  (pulso         ),
+        .digito2(s_medida[11:8]),
+        .digito1(s_medida[7:4] ),
+        .digito0(s_medida[3:0] ),
+        .fim    (fim           ),
+        .pronto (fim_medida    )
+    );
+
+    // (u_registrador) registrador de saida (12 bits BCD)
+    registrador_n #(
+        .N(12)
+    ) u_registrador (
+        .clock (clock    ),
+        .clear (1'b0     ),
+        .enable(registra ),
+        .D     (s_medida ),
+        .Q     (distancia)
+    );
+
+endmodule
+
+`default_nettype wire
+
+// ----------------------------------------------------------------------------
+// ARQUIVO: interface_hcsr04_uc.v
+// ----------------------------------------------------------------------------
+
+/* --------------------------------------------------------------------------
+ *  Arquivo   : interface_hcsr04_uc.v
+ * --------------------------------------------------------------------------
+ *  Descricao : unidade de controle do circuito de interface com sensor
+ *              ultrassonico de distancia HC-SR04
+ *              
+ * --------------------------------------------------------------------------
+ *  Revisoes  :
+ *      Data        Versao  Autor             Descricao
+ *      07/09/2024  1.0     Edson Midorikawa  versao em Verilog
+ * --------------------------------------------------------------------------
+ */
+
+`default_nettype none
+
+module interface_hcsr04_uc (
+    input  wire       clock,
+    input  wire       reset,
+    input  wire       medir,
+    input  wire       echo,
+    input  wire       fim_medida,
+    output reg        zera,
+    output reg        gera,
+    output reg        registra,
+    output reg        pronto,
+    output reg  [3:0] db_estado 
+);
+
+    // Tipos e sinais
+    reg [2:0] estado_q, estado_d;
+
+    // Parâmetros para os estados
+    localparam [2:0] INICIAL       = 3'b000;
+    localparam [2:0] PREPARACAO    = 3'b001;
+    localparam [2:0] ENVIA_TRIGGER = 3'b010;
+    localparam [2:0] ESPERA_ECHO   = 3'b011;
+    localparam [2:0] MEDIDA        = 3'b100;
+    localparam [2:0] ARMAZENAMENTO = 3'b101;
+    localparam [2:0] FINAL_MEDIDA  = 3'b110;
+
+    // Estado
+    always @(posedge clock or posedge reset) begin
+        if (reset) 
+            estado_q <= INICIAL;
+        else
+            estado_q <= estado_d; 
+    end
+
+    // Lógica de próximo estado
+    always @(*) begin
+        case (estado_q)
+            INICIAL: begin
+                if (medir)
+                    estado_d = PREPARACAO;
+                else
+                    estado_d = INICIAL;
+            end
+
+            PREPARACAO: begin
+                estado_d = ENVIA_TRIGGER;
+            end
+
+            ENVIA_TRIGGER: begin
+                estado_d = ESPERA_ECHO;
+            end
+
+            ESPERA_ECHO: begin
+                if (echo)
+                    estado_d = MEDIDA;
+                else
+                    estado_d = ESPERA_ECHO;
+            end
+
+            MEDIDA: begin
+                if (fim_medida)
+                    estado_d = ARMAZENAMENTO;
+                else
+                    estado_d = MEDIDA;
+            end
+
+            ARMAZENAMENTO: begin
+                estado_d = FINAL_MEDIDA;
+            end
+
+            FINAL_MEDIDA: begin
+                estado_d = INICIAL;
+            end
+
+            default: begin
+                estado_d = INICIAL;
+            end
+        endcase
+    end
+
+    // Saídas de controle (Moore)
+    always @(*) begin
+        zera      = 1'b0;
+        gera      = 1'b0;
+        registra  = 1'b0;
+        pronto    = 1'b0;
+        db_estado = 4'b1110;
+
+        case (estado_q)
+            INICIAL: begin
+                db_estado = 4'b0000;
+            end
+
+            PREPARACAO: begin
+                zera      = 1'b1;
+                db_estado = 4'b0001;
+            end
+
+            ENVIA_TRIGGER: begin
+                gera      = 1'b1;
+                db_estado = 4'b0010;
+            end
+
+            ESPERA_ECHO: begin
+                db_estado = 4'b0011;
+            end
+
+            MEDIDA: begin
+                db_estado = 4'b0100;
+            end
+
+            ARMAZENAMENTO: begin
+                registra  = 1'b1;
+                db_estado = 4'b0101;
+            end
+
+            FINAL_MEDIDA: begin
+                pronto    = 1'b1;
+                db_estado = 4'b1111;
+            end
+
+            default: begin
+                zera      = 1'b0;
+                gera      = 1'b0;
+                registra  = 1'b0;
+                pronto    = 1'b0;
+                db_estado = 4'b1110;
+            end
+        endcase
+    end
+
+endmodule
+
+`default_nettype wire
+
+// ----------------------------------------------------------------------------
+// ARQUIVO: contador_cm.v
+// ----------------------------------------------------------------------------
+
+/* --------------------------------------------------------------------------
+ *  Arquivo   : contador_cm.v
+ * --------------------------------------------------------------------------
+ *  Descricao : componente de contagem de cm 
+ *              componente parametrizado em funcao de clocks/cm
+ *            
+ * --------------------------------------------------------------------------
+ *  Revisoes  :
+ *      Data        Versao  Autor             Descricao
+ *      07/09/2024  1.0     Edson Midorikawa  versao em Verilog
+ * --------------------------------------------------------------------------
+ */
+
+`default_nettype none
+
+module contador_cm #(
+    parameter R = 10,  // razão de clocks por cm
+    parameter N = 4    // teto(log2(R))
+) (
+    input  wire       clock,
+    input  wire       reset,
+    input  wire       pulso,
+    output wire [3:0] digito0,
+    output wire [3:0] digito1,
+    output wire [3:0] digito2,
+    output wire       fim,
+    output wire       pronto
+);
+
+    // Sinais internos
+    wire s_zera_tick;
+    wire s_conta_tick;
+    wire s_zera_bcd;
+    wire s_conta_bcd;
+    wire s_tick;
+
+    // Instanciação do contador_cm_fd
+    contador_cm_fd #(
+        .R(R), 
+        .N(N)
+    ) u_fd (
+        .clock     (clock       ),
+        .pulso     (pulso       ),
+        .zera_tick (s_zera_tick ),
+        .conta_tick(s_conta_tick),
+        .zera_bcd  (s_zera_bcd  ),
+        .conta_bcd (s_conta_bcd ),
+        .tick      (s_tick      ),
+        .digito0   (digito0     ),
+        .digito1   (digito1     ),
+        .digito2   (digito2     ),
+        .fim       (fim         )
+    );
+
+    // Instanciação do contador_cm_uc
+    contador_cm_uc u_uc (
+        .clock     (clock       ),
+        .reset     (reset       ),
+        .pulso     (pulso       ),
+        .tick      (s_tick      ),
+        .zera_tick (s_zera_tick ),
+        .conta_tick(s_conta_tick),
+        .zera_bcd  (s_zera_bcd  ),
+        .conta_bcd (s_conta_bcd ),
+        .pronto    (pronto      )
+    );
+
+endmodule
+
+`default_nettype wire
+
+// ----------------------------------------------------------------------------
+// ARQUIVO: contador_cm_fd.v
+// ----------------------------------------------------------------------------
+
+/* --------------------------------------------------------------------------
+ *  Arquivo   : contador_cm_fd.v
+ * --------------------------------------------------------------------------
+ *  Descricao : fluxo de dados do componente de contagem de cm 
+ *              componente parametrizado em funcao de clocks/cm
+ *            
+ * --------------------------------------------------------------------------
+ *  Revisoes  :
+ *      Data        Versao  Autor             Descricao
+ *      07/09/2024  1.0     Edson Midorikawa  versao em Verilog
+ * --------------------------------------------------------------------------
+ */
+
+`default_nettype none
+
+module contador_cm_fd #(
+    parameter R = 10,  // razão de clocks por cm
+    parameter N = 4    // teto(log2(R)) 
+) (
+    input  wire       clock,
+    input  wire       pulso,
+    input  wire       zera_tick,
+    input  wire       conta_tick,
+    input  wire       zera_bcd,
+    input  wire       conta_bcd,
+    output wire       tick,
+    output wire [3:0] digito0,
+    output wire [3:0] digito1,
+    output wire [3:0] digito2,
+    output wire       fim
+);
+
+    // Gera tick do contador de cm a cada ciclo de R
+    contador_m #(
+        .M (R), 
+        .N (N)
+    ) u_contador_tick (
+        .clock   (clock     ),
+        .zera_as (1'b0      ),
+        .zera_s  (zera_tick ),
+        .conta   (conta_tick),
+        .Q       (          ),
+        .fim     (          ),
+        .meio    (tick      )
+    );
+
+    // Contador de distância em cm
+    contador_bcd_3digitos u_contador_distancia (
+        .clock   (clock    ),
+        .zera    (zera_bcd ),
+        .conta   (conta_bcd),
+        .digito0 (digito0  ),
+        .digito1 (digito1  ),
+        .digito2 (digito2  ),
+        .fim     (fim      )
+    );
+
+endmodule
+
+`default_nettype wire
+
+// ----------------------------------------------------------------------------
+// ARQUIVO: contador_cm_uc.v
+// ----------------------------------------------------------------------------
+
+/* --------------------------------------------------------------------------
+ *  Arquivo   : contador_cm_uc.v
+ * --------------------------------------------------------------------------
+ *  Descricao : unidade de controle do componente contador_cm
+ *              
+ *              incrementa contagem de cm a cada sinal de tick enquanto
+ *              o pulso de entrada permanece ativo
+ *              
+ * --------------------------------------------------------------------------
+ *  Revisoes  :
+ *      Data        Versao  Autor             Descricao
+ *      07/09/2024  1.0     Edson Midorikawa  versao em Verilog
+ * --------------------------------------------------------------------------
+ */
+
+`default_nettype none
+
+module contador_cm_uc (
+    input  wire clock,
+    input  wire reset,
+    input  wire pulso,
+    input  wire tick,
+    output reg  zera_tick,
+    output reg  conta_tick,
+    output reg  zera_bcd,
+    output reg  conta_bcd,
+    output reg  pronto
+);
+
+    // Tipos e sinais
+    reg [2:0] estado_q, estado_d;
+
+    // Parâmetros para os estados
+    localparam [2:0] INICIAL     = 3'b000;
+    localparam [2:0] PREPARA     = 3'b001;
+    localparam [2:0] ESPERA_TICK = 3'b010;
+    localparam [2:0] INCREMENTA  = 3'b011;
+    localparam [2:0] FINAL       = 3'b100;
+
+    // Memória de estado
+    always @(posedge clock or posedge reset) begin
+        if (reset)
+            estado_q <= INICIAL;
+        else
+            estado_q <= estado_d;
+    end
+
+    // Lógica de próximo estado
+    always @(*) begin
+        case (estado_q)
+            INICIAL: begin
+                if (pulso)
+                    estado_d = PREPARA;
+                else
+                    estado_d = INICIAL;
+            end
+
+            PREPARA: begin
+                if (pulso)
+                    estado_d = ESPERA_TICK;
+                else
+                    estado_d = FINAL;
+            end
+
+            ESPERA_TICK: begin
+                if (~pulso)
+                    estado_d = FINAL;
+                else if (tick)
+                    estado_d = INCREMENTA;
+                else
+                    estado_d = ESPERA_TICK;
+            end
+
+            INCREMENTA: begin
+                if (~pulso)
+                    estado_d = FINAL;
+                else
+                    estado_d = ESPERA_TICK;
+            end
+
+            FINAL: begin
+                estado_d = INICIAL;
+            end
+
+            default: begin
+                estado_d = INICIAL;
+            end
+        endcase
+    end
+
+    // Lógica de saída (Moore)
+    always @(*) begin
+        zera_tick  = 1'b0;
+        conta_tick = 1'b0;
+        zera_bcd   = 1'b0;
+        conta_bcd  = 1'b0;
+        pronto     = 1'b0;
+
+        case (estado_q)
+            INICIAL: begin
+                // Mantem contadores estaveis
+            end
+
+            PREPARA: begin
+                zera_tick = 1'b1;
+                zera_bcd  = 1'b1;
+            end
+
+            ESPERA_TICK: begin
+                conta_tick = 1'b1;
+            end
+
+            INCREMENTA: begin
+                conta_tick = 1'b1;
+                conta_bcd  = 1'b1;
+            end
+
+            FINAL: begin
+                pronto = 1'b1;
+            end
+
+            default: begin
+                zera_tick  = 1'b0;
+                conta_tick = 1'b0;
+                zera_bcd   = 1'b0;
+                conta_bcd  = 1'b0;
+                pronto     = 1'b0;
+            end
+        endcase
+    end
+
+endmodule
+
+`default_nettype wire
+
+// ----------------------------------------------------------------------------
+// ARQUIVO: interface_hcsr04_tb.v
+// ----------------------------------------------------------------------------
+
+`default_nettype none
+`timescale 1ns/1ns
+
+module interface_hcsr04_tb;
+
+    reg         clock_in = 0;
+    reg         reset_in = 0;
+    reg         medir_in = 0;
+    reg         echo_in  = 0;
+    wire        trigger_out;
+    wire [11:0] medida_out;
+    wire        pronto_out;
+    wire        db_reset_out;
+    wire        db_medir_out;
+    wire [3:0]  db_estado_out;
+
+    integer caso;
+    integer erros = 0;
+    reg [31:0] larguraPulso;
+
+    parameter clockPeriod = 20;
+    always #(clockPeriod/2) clock_in = ~clock_in;
+
+    interface_hcsr04 dut (
+        .clock    (clock_in     ),
+        .reset    (reset_in     ),
+        .medir    (medir_in     ),
+        .echo     (echo_in      ),
+        .trigger  (trigger_out  ),
+        .medida   (medida_out   ),
+        .pronto   (pronto_out   ),
+        .db_reset (db_reset_out ),
+        .db_medir (db_medir_out ),
+        .db_estado(db_estado_out)
+    );
+
+    localparam NUM_CASOS = 7;
+    reg [31:0] casos_tempo     [0:NUM_CASOS-1];
+    reg [11:0] casos_esperados [0:NUM_CASOS-1];
+
+    initial begin
+        $dumpfile("interface_hcsr04_tb.vcd");
+        $dumpvars(0, interface_hcsr04_tb);
+
+        casos_tempo[0]     = 118;   casos_esperados[0] = 12'h002;
+        casos_tempo[1]     = 882;   casos_esperados[1] = 12'h015;
+        casos_tempo[2]     = 4353;  casos_esperados[2] = 12'h074;
+        casos_tempo[3]     = 4399;  casos_esperados[3] = 12'h075;
+        casos_tempo[4]     = 5882;  casos_esperados[4] = 12'h100;
+        casos_tempo[5]     = 5899;  casos_esperados[5] = 12'h100;
+        casos_tempo[6]     = 14706; casos_esperados[6] = 12'h250;
+
+        medir_in = 0;
+        echo_in  = 0;
+        erros    = 0;
+
+        #(2*clockPeriod);
+        reset_in = 1;
+        #(2_000);
+        reset_in = 0;
+        @(negedge clock_in);
+
+        #(100_000);
+
+        for (caso = 1; caso <= NUM_CASOS; caso = caso + 1) begin
+            larguraPulso = casos_tempo[caso-1] * 1000;
+
+            @(negedge clock_in);
+            medir_in = 1;
+            #(5*clockPeriod);
+            medir_in = 0;
+
+            wait (trigger_out == 1'b1);
+            wait (trigger_out == 1'b0);
+
+            #(400_000);
+
+            echo_in = 1;
+            #(larguraPulso);
+            echo_in = 0;
+
+            wait (pronto_out == 1'b1);
+
+            if (medida_out === casos_esperados[caso-1]) begin
+                $display("  [SUCESSO] Caso %0d: Medida = %x cm (Esperado = %x cm)", 
+                         caso, medida_out, casos_esperados[caso-1]);
+            end else begin
+                $display("  [FALHA] Caso %0d: Medida = %x cm (Esperado = %x cm)", 
+                         caso, medida_out, casos_esperados[caso-1]);
+                erros = erros + 1;
+            end
+
+            #(100_000);
+        end
+
+        if (erros == 0) begin
+            $display("\nSUCCESS: ALL TESTBENCH CHECKS PASSED!");
+        end else begin
+            $display("\nFAILURE: %0d error(s) detected!", erros);
+        end
+
+        $finish;
+    end
+
+endmodule
+
+`default_nettype wire
+

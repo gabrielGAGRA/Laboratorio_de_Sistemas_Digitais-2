@@ -1,0 +1,447 @@
+// ============================================================================
+// PACOTE CONSOLIDADO: 6_transmissor_sonar.txt
+// Arquivos incluidos (4):
+//   - transmissor_sonar.v
+//   - transmissor_sonar_fd.v
+//   - transmissor_sonar_uc.v
+//   - transmissor_sonar_tb.v
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// ARQUIVO: transmissor_sonar.v
+// ----------------------------------------------------------------------------
+
+`default_nettype none
+
+/* --------------------------------------------------------------------------
+ *  Arquivo   : transmissor_sonar.v
+ * --------------------------------------------------------------------------
+ *  Descricao : Transmissor de dados do sonar.
+ *              Recebe angulo (24 bits ASCII) e distancia (12 bits BCD)
+ *              e transmite em bloco uma mensagem de 8 caracteres ASCII
+ *              no formato "AAA,DDD#" integrando UC e FD.
+ * --------------------------------------------------------------------------
+ */
+
+module transmissor_sonar (
+    input  wire        clock,
+    input  wire        reset,
+    input  wire        transmitir,
+    input  wire [23:0] angulo,
+    input  wire [11:0] distancia,
+    output wire        saida_serial,
+    output wire        pronto,
+    output wire        db_partida,
+    output wire        db_saida_serial,
+    output wire [3:0]  db_estado
+);
+
+    wire s_zera_indice;
+    wire s_conta_indice;
+    wire s_partida_serial;
+    wire s_pronto_serial;
+    wire s_fim_caracteres;
+
+    // Unidade de Controle
+    transmissor_sonar_uc u_uc (
+        .clock          (clock),
+        .reset          (reset),
+        .transmitir     (transmitir),
+        .pronto_serial  (s_pronto_serial),
+        .fim_caracteres (s_fim_caracteres),
+        .zera_indice    (s_zera_indice),
+        .conta_indice   (s_conta_indice),
+        .partida_serial (s_partida_serial),
+        .pronto         (pronto),
+        .db_estado      (db_estado)
+    );
+
+    // Fluxo de Dados
+    transmissor_sonar_fd u_fd (
+        .clock          (clock),
+        .reset          (reset),
+        .zera_indice    (s_zera_indice),
+        .conta_indice   (s_conta_indice),
+        .partida_serial (s_partida_serial),
+        .angulo         (angulo),
+        .distancia      (distancia),
+        .fim_caracteres (s_fim_caracteres),
+        .saida_serial   (saida_serial),
+        .pronto_serial  (s_pronto_serial),
+        .db_partida     (db_partida),
+        .db_saida_serial(db_saida_serial)
+    );
+
+endmodule
+
+`default_nettype wire
+
+// ----------------------------------------------------------------------------
+// ARQUIVO: transmissor_sonar_fd.v
+// ----------------------------------------------------------------------------
+
+`default_nettype none
+
+/* --------------------------------------------------------------------------
+ *  Arquivo   : transmissor_sonar_fd.v
+ * --------------------------------------------------------------------------
+ *  Descricao : Fluxo de dados do transmissor de dados do sonar.
+ *              Contem o contador de indice de 8 caracteres (0 a 7),
+ *              o multiplexador ASCII 8x1 e o transmissor serial tx_serial_7E1.
+ * --------------------------------------------------------------------------
+ */
+
+module transmissor_sonar_fd (
+    input  wire        clock,
+    input  wire        reset,
+    input  wire        zera_indice,
+    input  wire        conta_indice,
+    input  wire        partida_serial,
+    input  wire [23:0] angulo,
+    input  wire [11:0] distancia,
+    output wire        fim_caracteres,
+    output wire        saida_serial,
+    output wire        pronto_serial,
+    output wire        db_partida,
+    output wire        db_saida_serial
+);
+
+    reg  [2:0] indice_q;
+    reg  [6:0] s_dado_ascii;
+    wire       s_saida_serial;
+
+    // Contador de indice de caracteres (0 a 7)
+    always @(posedge clock or posedge reset) begin
+        if (reset) begin
+            indice_q <= 3'd0;
+        end else if (zera_indice) begin
+            indice_q <= 3'd0;
+        end else if (conta_indice) begin
+            indice_q <= indice_q + 3'd1;
+        end
+    end
+
+    assign fim_caracteres = (indice_q == 3'd7);
+
+    // Multiplexador dos 8 caracteres ASCII
+    always @* begin
+        case (indice_q)
+            3'd0:    s_dado_ascii = angulo[22:16];             // Centena angulo
+            3'd1:    s_dado_ascii = angulo[14:8];              // Dezena angulo
+            3'd2:    s_dado_ascii = angulo[6:0];               // Unidade angulo
+            3'd3:    s_dado_ascii = 7'h2C;                     // ',' (virgula)
+            3'd4:    s_dado_ascii = {3'b011, distancia[11:8]}; // Centena BCD distancia
+            3'd5:    s_dado_ascii = {3'b011, distancia[7:4]};  // Dezena BCD distancia
+            3'd6:    s_dado_ascii = {3'b011, distancia[3:0]};  // Unidade BCD distancia
+            3'd7:    s_dado_ascii = 7'h23;                     // '#' (hashtag)
+            default: s_dado_ascii = 7'h20;
+        endcase
+    end
+
+    // Instanciacao do transmissor serial assincrono 7E1 refatorado
+    tx_serial_7E1 u_tx_serial_7E1 (
+        .clock           (clock),
+        .reset           (reset),
+        .partida         (partida_serial),
+        .dados_ascii     (s_dado_ascii),
+        .saida_serial    (s_saida_serial),
+        .pronto          (pronto_serial),
+        .db_partida      (),
+        .db_saida_serial (),
+        .db_estado       ()
+    );
+
+    assign saida_serial    = s_saida_serial;
+    assign db_partida      = partida_serial;
+    assign db_saida_serial = s_saida_serial;
+
+endmodule
+
+`default_nettype wire
+
+// ----------------------------------------------------------------------------
+// ARQUIVO: transmissor_sonar_uc.v
+// ----------------------------------------------------------------------------
+
+`default_nettype none
+
+/* --------------------------------------------------------------------------
+ *  Arquivo   : transmissor_sonar_uc.v
+ * --------------------------------------------------------------------------
+ *  Descricao : Unidade de Controle do transmissor de dados do sonar.
+ *              Controla o envio sequencial dos 8 caracteres ASCII:
+ *              1. Espera comando transmitir=1
+ *              2. Dispara partida serial para cada caractere
+ *              3. Aguarda pronto_serial
+ *              4. Incrementa indice ate o 8o caractere e conclui
+ * --------------------------------------------------------------------------
+ */
+
+module transmissor_sonar_uc (
+    input  wire       clock,
+    input  wire       reset,
+    input  wire       transmitir,
+    input  wire       pronto_serial,
+    input  wire       fim_caracteres,
+    output reg        zera_indice,
+    output reg        conta_indice,
+    output reg        partida_serial,
+    output reg        pronto,
+    output wire [3:0] db_estado
+);
+
+    // Estados da FSM
+    localparam [2:0] STATE_IDLE      = 3'b000,
+                     STATE_SEND      = 3'b001,
+                     STATE_WAIT_CHAR = 3'b010,
+                     STATE_NEXT      = 3'b011,
+                     STATE_DONE      = 3'b100;
+
+    reg [2:0] estado_q, estado_d;
+
+    // Registrador de estado
+    always @(posedge clock or posedge reset) begin
+        if (reset) begin
+            estado_q <= STATE_IDLE;
+        end else begin
+            estado_q <= estado_d;
+        end
+    end
+
+    // Logica de proximo estado
+    always @* begin
+        estado_d = estado_q;
+
+        case (estado_q)
+            STATE_IDLE: begin
+                if (transmitir) begin
+                    estado_d = STATE_SEND;
+                end else begin
+                    estado_d = STATE_IDLE;
+                end
+            end
+
+            STATE_SEND: begin
+                estado_d = STATE_WAIT_CHAR;
+            end
+
+            STATE_WAIT_CHAR: begin
+                if (pronto_serial) begin
+                    estado_d = STATE_NEXT;
+                end else begin
+                    estado_d = STATE_WAIT_CHAR;
+                end
+            end
+
+            STATE_NEXT: begin
+                if (fim_caracteres) begin
+                    estado_d = STATE_DONE;
+                end else begin
+                    estado_d = STATE_SEND;
+                end
+            end
+
+            STATE_DONE: begin
+                estado_d = STATE_IDLE;
+            end
+
+            default: begin
+                estado_d = STATE_IDLE;
+            end
+        endcase
+    end
+
+    // Logica de saida combinacional (Moore)
+    always @* begin
+        zera_indice    = 1'b0;
+        conta_indice   = 1'b0;
+        partida_serial = 1'b0;
+        pronto         = 1'b0;
+
+        case (estado_q)
+            STATE_IDLE: begin
+                zera_indice = 1'b1;
+            end
+
+            STATE_SEND: begin
+                partida_serial = 1'b1;
+            end
+
+            STATE_WAIT_CHAR: begin
+                // Aguarda fim do caractere serial
+            end
+
+            STATE_NEXT: begin
+                if (!fim_caracteres) begin
+                    conta_indice = 1'b1;
+                end
+            end
+
+            STATE_DONE: begin
+                pronto = 1'b1;
+            end
+
+            default: begin
+                zera_indice = 1'b1;
+            end
+        endcase
+    end
+
+    assign db_estado = {1'b0, estado_q};
+
+endmodule
+
+`default_nettype wire
+
+// ----------------------------------------------------------------------------
+// ARQUIVO: transmissor_sonar_tb.v
+// ----------------------------------------------------------------------------
+
+`default_nettype none
+`timescale 1ns/1ns
+
+module transmissor_sonar_tb;
+
+    reg         clock;
+    reg         reset;
+    reg         transmitir;
+    reg  [23:0] angulo;
+    reg  [11:0] distancia;
+    wire        saida_serial;
+    wire        pronto;
+    wire        db_partida;
+    wire        db_saida_serial;
+    wire [3:0]  db_estado;
+
+    integer errors = 0;
+    integer byte_idx;
+    integer bit_idx;
+    reg [6:0] byte_recebido;
+    reg       bit_paridade;
+
+    localparam CLOCK_PERIOD = 20; // 50 MHz
+    localparam BIT_PERIOD   = 434 * CLOCK_PERIOD; // 115200 bauds: 434 clocks (8680 ns)
+
+    always #(CLOCK_PERIOD / 2) clock = ~clock;
+
+    transmissor_sonar dut (
+        .clock           (clock),
+        .reset           (reset),
+        .transmitir      (transmitir),
+        .angulo          (angulo),
+        .distancia       (distancia),
+        .saida_serial    (saida_serial),
+        .pronto          (pronto),
+        .db_partida      (db_partida),
+        .db_saida_serial (db_saida_serial),
+        .db_estado       (db_estado)
+    );
+
+    // Array com os 8 caracteres esperados: "120,017#"
+    reg [6:0] chars_esperados [0:7];
+
+    initial begin
+        #(2000000 * CLOCK_PERIOD);
+        $display("[ERRO] Watchdog timeout alcancado na simulacao!");
+        $finish;
+    end
+
+    initial begin
+        $dumpfile("transmissor_sonar_tb.vcd");
+        $dumpvars(0, transmissor_sonar_tb);
+
+        chars_esperados[0] = 7'h31; // '1'
+        chars_esperados[1] = 7'h32; // '2'
+        chars_esperados[2] = 7'h30; // '0'
+        chars_esperados[3] = 7'h2C; // ','
+        chars_esperados[4] = 7'h30; // '0'
+        chars_esperados[5] = 7'h31; // '1'
+        chars_esperados[6] = 7'h37; // '7'
+        chars_esperados[7] = 7'h23; // '#'
+
+        clock      = 0;
+        reset      = 0;
+        transmitir = 0;
+        angulo     = 24'h313230; // "120"
+        distancia  = 12'h017;    // 017 cm
+
+        // Reset
+        @(negedge clock);
+        reset = 1;
+        #(5 * CLOCK_PERIOD);
+        @(negedge clock);
+        reset = 0;
+        #(20 * CLOCK_PERIOD);
+
+        $display("Iniciando transmissao do bloco de 8 caracteres: angulo=%h, distancia=%h", angulo, distancia);
+
+        @(negedge clock);
+        transmitir = 1;
+        #(CLOCK_PERIOD);
+        @(negedge clock);
+        transmitir = 0;
+
+        // Recebe e valida os 8 caracteres
+        for (byte_idx = 0; byte_idx < 8; byte_idx = byte_idx + 1) begin
+            // 1. Aguarda borda de descida do start bit
+            @(negedge saida_serial);
+            // Salta para o meio do start bit (BIT_PERIOD / 2)
+            #(BIT_PERIOD / 2);
+            if (saida_serial !== 1'b0) begin
+                $display("[ERRO] Byte %0d: Start bit invalido!", byte_idx);
+                errors = errors + 1;
+            end
+
+            // 2. Amostra 7 bits de dados
+            byte_recebido = 7'd0;
+            for (bit_idx = 0; bit_idx < 7; bit_idx = bit_idx + 1) begin
+                #(BIT_PERIOD);
+                byte_recebido[bit_idx] = saida_serial;
+            end
+
+            // 3. Amostra paridade par
+            #(BIT_PERIOD);
+            bit_paridade = saida_serial;
+            if (bit_paridade !== ^byte_recebido) begin
+                $display("[ERRO] Byte %0d: Erro de paridade! Recebido=%b, esperado=%b",
+                         byte_idx, bit_paridade, ^byte_recebido);
+                errors = errors + 1;
+            end
+
+            // 4. Amostra stop bit
+            #(BIT_PERIOD);
+            if (saida_serial !== 1'b1) begin
+                $display("[ERRO] Byte %0d: Stop bit invalido!", byte_idx);
+                errors = errors + 1;
+            end
+
+            // Valida caractere recebido
+            if (byte_recebido === chars_esperados[byte_idx]) begin
+                $display("  [OK] Byte %0d: '%c' (7'h%02h)", byte_idx, byte_recebido, byte_recebido);
+            end else begin
+                $display("  [ERRO] Byte %0d: Recebido '%c' (7'h%02h), Esperado '%c' (7'h%02h)",
+                         byte_idx, byte_recebido, byte_recebido,
+                         chars_esperados[byte_idx], chars_esperados[byte_idx]);
+                errors = errors + 1;
+            end
+        end
+
+        // Aguarda sinal pronto do transmissor
+        wait (pronto == 1'b1);
+        $display("Sinal pronto ativado com sucesso!");
+
+        #(50 * CLOCK_PERIOD);
+
+        if (errors == 0) begin
+            $display("\nSUCCESS: ALL TESTBENCH CHECKS PASSED! (Mensagem '120,017#' transmitida corretamente)");
+        end else begin
+            $display("\nFAILURE: %0d error(s) detected", errors);
+        end
+
+        $finish;
+    end
+
+endmodule
+
+`default_nettype wire
+

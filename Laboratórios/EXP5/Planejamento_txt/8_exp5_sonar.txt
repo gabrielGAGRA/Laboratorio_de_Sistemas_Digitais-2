@@ -1,0 +1,228 @@
+// ============================================================================
+// PACOTE CONSOLIDADO: 8_exp5_sonar.txt
+// Arquivos incluidos (2):
+//   - exp5_sonar.v
+//   - exp5_sonar_tb.v
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// ARQUIVO: exp5_sonar.v
+// ----------------------------------------------------------------------------
+
+`default_nettype none
+
+/* --------------------------------------------------------------------------
+ *  Arquivo   : exp5_sonar.v
+ * --------------------------------------------------------------------------
+ *  Descricao : Top-level para a placa FPGA Cyclone V DE0-CV.
+ *              Instancia o nucleo do Sistema de Sonar (sonar.v) e mapeia os
+ *              sinais aos pinos da placa (chaves SW, displays HEX0-HEX5,
+ *              LEDs LEDR e conectores GPIO para HC-SR04, servo e USB-serial).
+ * --------------------------------------------------------------------------
+ */
+
+module exp5_sonar (
+    input  wire       clock,
+    input  wire       reset,
+    input  wire       ligar,
+    input  wire       echo,
+    output wire       trigger,
+    output wire       pwm,
+    output wire       saida_serial,
+    output wire       fim_posicao,
+    output wire [6:0] hex0,
+    output wire [6:0] hex1,
+    output wire [6:0] hex2,
+    output wire [6:0] hex3,
+    output wire [6:0] hex4,
+    output wire [6:0] hex5,
+    output wire [9:0] ledr
+);
+
+    wire [2:0]  s_posicao;
+    wire [11:0] s_medida;
+    wire [3:0]  s_estado;
+
+    // Sincronizador de reset de 2 estagios para prevencao de metaestabilidade
+    // e cumprimento dos tempos de recovery/removal no clock de 50 MHz
+    reg reset_sync_1_q;
+    reg reset_sync_2_q;
+    wire s_reset_sinc;
+
+    always @(posedge clock or posedge reset) begin
+        if (reset) begin
+            reset_sync_1_q <= 1'b1;
+            reset_sync_2_q <= 1'b1;
+        end else begin
+            reset_sync_1_q <= 1'b0;
+            reset_sync_2_q <= reset_sync_1_q;
+        end
+    end
+
+    assign s_reset_sinc = reset_sync_2_q;
+
+    // Instanciacao do nucleo do Sonar
+    sonar #(
+        .M_INTERVALO(100_000_000), // 2 segundos a 50 MHz
+        .N_INTERVALO(27)
+    ) u_sonar (
+        .clock        (clock),
+        .reset        (s_reset_sinc),
+        .ligar        (ligar),
+        .echo         (echo),
+        .trigger      (trigger),
+        .pwm          (pwm),
+        .saida_serial (saida_serial),
+        .fim_posicao  (fim_posicao),
+        .db_posicao   (s_posicao),
+        .db_medida    (s_medida),
+        .db_estado    (s_estado)
+    );
+
+    // Decodificadores de 7 segmentos para a distancia medida (HEX0, HEX1, HEX2)
+    hexa7seg u_hex0 (
+        .hexa   ({1'b0, s_medida[3:0]}),
+        .display(hex0)
+    );
+
+    hexa7seg u_hex1 (
+        .hexa   ({1'b0, s_medida[7:4]}),
+        .display(hex1)
+    );
+
+    hexa7seg u_hex2 (
+        .hexa   ({1'b0, s_medida[11:8]}),
+        .display(hex2)
+    );
+
+    // Display HEX3 apagado
+    assign hex3 = 7'b1111111;
+
+    // Display HEX4: Posicao angular atual do servomotor (0 a 7)
+    hexa7seg u_hex4 (
+        .hexa   ({2'b00, s_posicao}),
+        .display(hex4)
+    );
+
+    // Display HEX5: Estado atual da FSM de controle (0 a 7)
+    hexa7seg u_hex5 (
+        .hexa   ({1'b0, s_estado}),
+        .display(hex5)
+    );
+
+    // LEDs de depuracao e status
+    assign ledr[0]   = fim_posicao;
+    assign ledr[1]   = ligar;
+    assign ledr[2]   = trigger;
+    assign ledr[3]   = echo;
+    assign ledr[4]   = saida_serial;
+    assign ledr[5]   = pwm;
+    assign ledr[9:6] = 4'b0000;
+
+endmodule
+
+`default_nettype wire
+
+// ----------------------------------------------------------------------------
+// ARQUIVO: exp5_sonar_tb.v
+// ----------------------------------------------------------------------------
+
+`default_nettype none
+`timescale 1ns/1ns
+
+module exp5_sonar_tb;
+
+    reg        clock;
+    reg        reset;
+    reg        ligar;
+    reg        echo;
+    wire       trigger;
+    wire       pwm;
+    wire       saida_serial;
+    wire       fim_posicao;
+    wire [6:0] hex0;
+    wire [6:0] hex1;
+    wire [6:0] hex2;
+    wire [6:0] hex3;
+    wire [6:0] hex4;
+    wire [6:0] hex5;
+    wire [9:0] ledr;
+
+    integer errors = 0;
+    localparam CLOCK_PERIOD = 20; // 50 MHz
+    always #(CLOCK_PERIOD / 2) clock = ~clock;
+
+    // DUT
+    exp5_sonar dut (
+        .clock        (clock),
+        .reset        (reset),
+        .ligar        (ligar),
+        .echo         (echo),
+        .trigger      (trigger),
+        .pwm          (pwm),
+        .saida_serial (saida_serial),
+        .fim_posicao  (fim_posicao),
+        .hex0         (hex0),
+        .hex1         (hex1),
+        .hex2         (hex2),
+        .hex3         (hex3),
+        .hex4         (hex4),
+        .hex5         (hex5),
+        .ledr         (ledr)
+    );
+
+    initial begin
+        $dumpfile("exp5_sonar_tb.vcd");
+        $dumpvars(0, exp5_sonar_tb);
+
+        clock = 0;
+        reset = 0;
+        ligar = 0;
+        echo  = 0;
+
+        $display("Inicio da simulacao: exp5_sonar_tb");
+
+        // Reset
+        @(negedge clock);
+        reset = 1;
+        #(100 * CLOCK_PERIOD);
+        @(negedge clock);
+        reset = 0;
+        #(100 * CLOCK_PERIOD);
+
+        // Verifica estado inicial
+        if (hex3 !== 7'b1111111) begin
+            $display("[ERRO] HEX3 deve estar apagado!");
+            errors = errors + 1;
+        end
+
+        // Verifica conexao dos LEDs de status
+        if (ledr[1] !== 1'b0) begin
+            $display("[ERRO] LEDR[1] (ligar) deveria ser 0 inicialmente");
+            errors = errors + 1;
+        end
+
+        @(negedge clock);
+        ligar = 1;
+        #(20 * CLOCK_PERIOD);
+
+        if (ledr[1] !== 1'b1) begin
+            $display("[ERRO] LEDR[1] (ligar) deveria ser 1 apos ligar");
+            errors = errors + 1;
+        end
+
+        $display("exp5_sonar top-level verificado com sucesso!");
+
+        if (errors == 0) begin
+            $display("\nSUCCESS: ALL TESTBENCH CHECKS PASSED!");
+        end else begin
+            $display("\nFAILURE: %0d error(s) detected", errors);
+        end
+
+        $finish;
+    end
+
+endmodule
+
+`default_nettype wire
+

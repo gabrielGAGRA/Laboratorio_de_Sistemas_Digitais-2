@@ -1,0 +1,569 @@
+// ============================================================================
+// PACOTE CONSOLIDADO: 7_sonar.txt
+// Arquivos incluidos (4):
+//   - sonar.v
+//   - sonar_uc.v
+//   - sonar_fd.v
+//   - sonar_tb.v
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// ARQUIVO: sonar.v
+// ----------------------------------------------------------------------------
+
+`default_nettype none
+
+/* --------------------------------------------------------------------------
+ *  Arquivo   : sonar.v
+ * --------------------------------------------------------------------------
+ *  Descricao : Top-level do Sistema de Sonar (conforme Figura 1 da apostila).
+ *              Interface estrutural que integra UC e FD, com sinais de
+ *              depuracao para a placa FPGA DE0-CV e simulacao.
+ * --------------------------------------------------------------------------
+ */
+
+module sonar #(
+    parameter M_INTERVALO = 100_000_000, // 2s a 50MHz (ajustavel em TB)
+    parameter N_INTERVALO = 27
+) (
+    input  wire        clock,
+    input  wire        reset,
+    input  wire        ligar,
+    input  wire        echo,
+    output wire        trigger,
+    output wire        pwm,
+    output wire        saida_serial,
+    output wire        fim_posicao,
+    // Sinais de depuracao
+    output wire [2:0]  db_posicao,
+    output wire [11:0] db_medida,
+    output wire [3:0]  db_estado
+);
+
+    // Sinais de controle e condicao entre UC e FD
+    wire s_zera_posicao;
+    wire s_conta_posicao;
+    wire s_zera_timer;
+    wire s_conta_timer;
+    wire s_medir;
+    wire s_transmitir;
+    wire s_fim_timer;
+    wire s_fim_medida;
+    wire s_fim_transmissao;
+    wire [3:0] s_estado;
+
+    // Unidade de Controle
+    sonar_uc u_uc (
+        .clock           (clock),
+        .reset           (reset),
+        .ligar           (ligar),
+        .fim_timer       (s_fim_timer),
+        .fim_medida      (s_fim_medida),
+        .fim_transmissao (s_fim_transmissao),
+        .zera_posicao    (s_zera_posicao),
+        .conta_posicao   (s_conta_posicao),
+        .zera_timer      (s_zera_timer),
+        .conta_timer     (s_conta_timer),
+        .medir           (s_medir),
+        .transmitir      (s_transmitir),
+        .fim_posicao     (fim_posicao),
+        .db_estado       (s_estado)
+    );
+
+    // Fluxo de Dados
+    sonar_fd #(
+        .M_INTERVALO(M_INTERVALO),
+        .N_INTERVALO(N_INTERVALO)
+    ) u_fd (
+        .clock           (clock),
+        .reset           (reset),
+        .zera_posicao    (s_zera_posicao),
+        .conta_posicao   (s_conta_posicao),
+        .zera_timer      (s_zera_timer),
+        .conta_timer     (s_conta_timer),
+        .medir           (s_medir),
+        .transmitir      (s_transmitir),
+        .echo            (echo),
+        .trigger         (trigger),
+        .pwm             (pwm),
+        .saida_serial    (saida_serial),
+        .fim_timer       (s_fim_timer),
+        .fim_medida      (s_fim_medida),
+        .fim_transmissao (s_fim_transmissao),
+        .db_posicao      (db_posicao),
+        .db_angulo       (),
+        .db_medida       (db_medida)
+    );
+
+    assign db_estado = s_estado;
+
+endmodule
+
+`default_nettype wire
+
+// ----------------------------------------------------------------------------
+// ARQUIVO: sonar_uc.v
+// ----------------------------------------------------------------------------
+
+`default_nettype none
+
+/* --------------------------------------------------------------------------
+ *  Arquivo   : sonar_uc.v
+ * --------------------------------------------------------------------------
+ *  Descricao : Unidade de Controle do Sistema de Sonar (FSM).
+ *              Controla o ciclo de varredura:
+ *              1. Espera ligar=1
+ *              2. Inicializacao do servomotor na posicao 000
+ *              3. Temporizacao de repouso (2s real / 200us simulacao)
+ *              4. Medicao de distancia (HC-SR04)
+ *              5. Transmissao serial de bloco ASCII ("AAA,DDD#")
+ *              6. Avanco do servomotor e geracao de pulso fim_posicao
+ * --------------------------------------------------------------------------
+ */
+
+module sonar_uc (
+    input  wire       clock,
+    input  wire       reset,
+    input  wire       ligar,
+    input  wire       fim_timer,
+    input  wire       fim_medida,
+    input  wire       fim_transmissao,
+    output reg        zera_posicao,
+    output reg        conta_posicao,
+    output reg        zera_timer,
+    output reg        conta_timer,
+    output reg        medir,
+    output reg        transmitir,
+    output reg        fim_posicao,
+    output wire [3:0] db_estado
+);
+
+    localparam [3:0] STATE_INICIAL            = 4'b0000, // 0
+                     STATE_PREPARA_SERVO      = 4'b0001, // 1
+                     STATE_ESPERA_TIMER       = 4'b0010, // 2
+                     STATE_DISPARA_MEDIDA     = 4'b0011, // 3
+                     STATE_ESPERA_MEDIDA      = 4'b0100, // 4
+                     STATE_DISPARA_TRANSMISSAO= 4'b0101, // 5
+                     STATE_ESPERA_TRANSMISSAO = 4'b0110, // 6
+                     STATE_PROXIMA_POSICAO    = 4'b0111; // 7
+
+    reg [3:0] estado_q, estado_d;
+
+    // Registrador de estado
+    always @(posedge clock or posedge reset) begin
+        if (reset) begin
+            estado_q <= STATE_INICIAL;
+        end else begin
+            estado_q <= estado_d;
+        end
+    end
+
+    // Logica de transicao de estados
+    always @* begin
+        case (estado_q)
+            STATE_INICIAL: begin
+                if (ligar) begin
+                    estado_d = STATE_PREPARA_SERVO;
+                end else begin
+                    estado_d = STATE_INICIAL;
+                end
+            end
+
+            STATE_PREPARA_SERVO: begin
+                if (!ligar) begin
+                    estado_d = STATE_INICIAL;
+                end else begin
+                    estado_d = STATE_ESPERA_TIMER;
+                end
+            end
+
+            STATE_ESPERA_TIMER: begin
+                if (!ligar) begin
+                    estado_d = STATE_INICIAL;
+                end else if (fim_timer) begin
+                    estado_d = STATE_DISPARA_MEDIDA;
+                end else begin
+                    estado_d = STATE_ESPERA_TIMER;
+                end
+            end
+
+            STATE_DISPARA_MEDIDA: begin
+                if (!ligar) begin
+                    estado_d = STATE_INICIAL;
+                end else begin
+                    estado_d = STATE_ESPERA_MEDIDA;
+                end
+            end
+
+            STATE_ESPERA_MEDIDA: begin
+                if (!ligar) begin
+                    estado_d = STATE_INICIAL;
+                end else if (fim_medida) begin
+                    estado_d = STATE_DISPARA_TRANSMISSAO;
+                end else begin
+                    estado_d = STATE_ESPERA_MEDIDA;
+                end
+            end
+
+            STATE_DISPARA_TRANSMISSAO: begin
+                if (!ligar) begin
+                    estado_d = STATE_INICIAL;
+                end else begin
+                    estado_d = STATE_ESPERA_TRANSMISSAO;
+                end
+            end
+
+            STATE_ESPERA_TRANSMISSAO: begin
+                if (!ligar) begin
+                    estado_d = STATE_INICIAL;
+                end else if (fim_transmissao) begin
+                    estado_d = STATE_PROXIMA_POSICAO;
+                end else begin
+                    estado_d = STATE_ESPERA_TRANSMISSAO;
+                end
+            end
+
+            STATE_PROXIMA_POSICAO: begin
+                if (!ligar) begin
+                    estado_d = STATE_INICIAL;
+                end else begin
+                    estado_d = STATE_ESPERA_TIMER;
+                end
+            end
+
+            default: begin
+                estado_d = STATE_INICIAL;
+            end
+        endcase
+    end
+
+    // Logica de saidas combinacionais (Moore)
+    always @* begin
+        zera_posicao  = 1'b0;
+        conta_posicao = 1'b0;
+        zera_timer    = 1'b0;
+        conta_timer   = 1'b0;
+        medir         = 1'b0;
+        transmitir    = 1'b0;
+        fim_posicao   = 1'b0;
+
+        case (estado_q)
+            STATE_INICIAL: begin
+                zera_posicao = 1'b1;
+                zera_timer   = 1'b1;
+            end
+
+            STATE_PREPARA_SERVO: begin
+                zera_timer = 1'b1;
+            end
+
+            STATE_ESPERA_TIMER: begin
+                conta_timer = 1'b1;
+            end
+
+            STATE_DISPARA_MEDIDA: begin
+                medir = 1'b1;
+            end
+
+            STATE_ESPERA_MEDIDA: begin
+                // Apenas aguarda
+            end
+
+            STATE_DISPARA_TRANSMISSAO: begin
+                transmitir = 1'b1;
+            end
+
+            STATE_ESPERA_TRANSMISSAO: begin
+                // Apenas aguarda
+            end
+
+            STATE_PROXIMA_POSICAO: begin
+                conta_posicao = 1'b1;
+                fim_posicao   = 1'b1;
+                zera_timer    = 1'b1;
+            end
+
+            default: begin
+                zera_posicao = 1'b1;
+                zera_timer   = 1'b1;
+            end
+        endcase
+    end
+
+    assign db_estado = estado_q;
+
+endmodule
+
+`default_nettype wire
+
+// ----------------------------------------------------------------------------
+// ARQUIVO: sonar_fd.v
+// ----------------------------------------------------------------------------
+
+`default_nettype none
+
+/* --------------------------------------------------------------------------
+ *  Arquivo   : sonar_fd.v
+ * --------------------------------------------------------------------------
+ *  Descricao : Fluxo de dados do Sistema de Sonar.
+ *              Integra o controle de 8 posicoes do servo, memoria ROM de
+ *              angulos, interface com o sensor HC-SR04, transmissao serial
+ *              de 8 caracteres e temporizador de repouso parametrizavel.
+ * --------------------------------------------------------------------------
+ */
+
+module sonar_fd #(
+    parameter M_INTERVALO = 100_000_000, // 2 segundos a 50 MHz (ajustavel em TB)
+    parameter N_INTERVALO = 27
+) (
+    input  wire        clock,
+    input  wire        reset,
+    input  wire        zera_posicao,
+    input  wire        conta_posicao,
+    input  wire        zera_timer,
+    input  wire        conta_timer,
+    input  wire        medir,
+    input  wire        transmitir,
+    input  wire        echo,
+    output wire        trigger,
+    output wire        pwm,
+    output wire        saida_serial,
+    output wire        fim_timer,
+    output wire        fim_medida,
+    output wire        fim_transmissao,
+    output wire [2:0]  db_posicao,
+    output wire [23:0] db_angulo,
+    output wire [11:0] db_medida
+);
+
+    wire [2:0]  s_posicao;
+    wire [23:0] s_angulo;
+    wire [11:0] s_distancia;
+
+    // 1. Contador de 8 posicoes do servomotor (000 a 111)
+    contador_m #(
+        .M(8),
+        .N(3)
+    ) u_contador_posicao (
+        .clock   (clock),
+        .zera_as (reset),
+        .zera_s  (zera_posicao),
+        .conta   (conta_posicao),
+        .Q       (s_posicao),
+        .fim     (),
+        .meio    ()
+    );
+
+    // 2. Memoria ROM de angulos em ASCII (8 palavras de 24 bits)
+    rom_angulos_8x24 u_rom_angulos (
+        .endereco (s_posicao),
+        .saida    (s_angulo)
+    );
+
+    // 3. Controle do servomotor (8 posicoes com pulsos PWM)
+    controle_servo_8 u_controle_servo (
+        .clock       (clock),
+        .reset       (reset),
+        .posicao     (s_posicao),
+        .controle    (pwm),
+        .db_reset    (),
+        .db_posicao  (),
+        .db_controle ()
+    );
+
+    // 4. Interface com o sensor ultrassonico HC-SR04
+    interface_hcsr04 u_interface_hcsr04 (
+        .clock     (clock),
+        .reset     (reset),
+        .medir     (medir),
+        .echo      (echo),
+        .trigger   (trigger),
+        .medida    (s_distancia),
+        .pronto    (fim_medida),
+        .db_reset  (),
+        .db_medir  (),
+        .db_estado ()
+    );
+
+    // 5. Transmissao em bloco dos dados do sonar (8 caracteres ASCII "AAA,DDD#")
+    transmissor_sonar u_transmissor_sonar (
+        .clock           (clock),
+        .reset           (reset),
+        .transmitir      (transmitir),
+        .angulo          (s_angulo),
+        .distancia       (s_distancia),
+        .saida_serial    (saida_serial),
+        .pronto          (fim_transmissao),
+        .db_partida      (),
+        .db_saida_serial (),
+        .db_estado       ()
+    );
+
+    // 6. Temporizador de repouso (2s real ou 200us em simulacao)
+    contador_m #(
+        .M(M_INTERVALO),
+        .N(N_INTERVALO)
+    ) u_timer_intervalo (
+        .clock   (clock),
+        .zera_as (reset),
+        .zera_s  (zera_timer),
+        .conta   (conta_timer),
+        .Q       (),
+        .fim     (fim_timer),
+        .meio    ()
+    );
+
+    // Sinais de monitoramento
+    assign db_posicao = s_posicao;
+    assign db_angulo  = s_angulo;
+    assign db_medida  = s_distancia;
+
+endmodule
+
+`default_nettype wire
+
+// ----------------------------------------------------------------------------
+// ARQUIVO: sonar_tb.v
+// ----------------------------------------------------------------------------
+
+`default_nettype none
+`timescale 1ns/1ns
+
+module sonar_tb;
+
+    // 1. Definicao de sinais internos
+    reg        clock_in;
+    reg        reset_in;
+    reg        ligar_in;
+    reg        echo_in;
+    wire       trigger_out;
+    wire       pwm_out;
+    wire       saida_serial_out;
+    wire       fim_posicao_out;
+
+    integer caso;
+    integer errors = 0;
+    reg [31:0] larguraPulso;
+
+    localparam CLOCK_PERIOD = 20; // 50 MHz (20 ns)
+    always #(CLOCK_PERIOD / 2) clock_in = ~clock_in;
+
+    // 2. Instanciacao do DUT com tempo de espera reduzido para 200us (10_000 ciclos a 50MHz)
+    localparam M_SIM = 10_000;
+    localparam N_SIM = 14;
+
+    sonar #(
+        .M_INTERVALO(M_SIM),
+        .N_INTERVALO(N_SIM)
+    ) dut (
+        .clock        (clock_in),
+        .reset        (reset_in),
+        .ligar        (ligar_in),
+        .echo         (echo_in),
+        .trigger      (trigger_out),
+        .pwm          (pwm_out),
+        .saida_serial (saida_serial_out),
+        .fim_posicao  (fim_posicao_out)
+    );
+
+    // 3. Definicao dos casos de teste (8 posicoes com diferentes larguras de pulso echo)
+    localparam NUM_CASOS = 8;
+    reg [31:0] casos_eco [0:NUM_CASOS-1];
+
+    initial begin
+        $dumpfile("sonar_tb.vcd");
+        $dumpvars(0, sonar_tb);
+
+        // Inicializacao dos casos de teste (largura em microssegundos)
+        casos_eco[0] = 294;  // Posicao 0 (20°):  ~5 cm
+        casos_eco[1] = 353;  // Posicao 1 (40°):  ~6 cm
+        casos_eco[2] = 588;  // Posicao 2 (60°):  ~10 cm
+        casos_eco[3] = 882;  // Posicao 3 (80°):  ~15 cm
+        casos_eco[4] = 588;  // Posicao 4 (100°): ~10 cm
+        casos_eco[5] = 588;  // Posicao 5 (120°): ~10 cm
+        casos_eco[6] = 1176; // Posicao 6 (140°): ~20 cm
+        casos_eco[7] = 1765; // Posicao 7 (160°): ~30 cm
+
+        // 4. Valores iniciais e reset
+        clock_in = 0;
+        reset_in = 0;
+        ligar_in = 0;
+        echo_in  = 0;
+        errors   = 0;
+
+        $display("===================================================================");
+        $display("   INICIO DA SIMULACAO DO SISTEMA DE SONAR: sonar_tb");
+        $display("===================================================================");
+
+        #(2 * CLOCK_PERIOD);
+        @(negedge clock_in);
+        reset_in = 1;
+        #(2_000); // 2 us de reset
+        @(negedge clock_in);
+        reset_in = 0;
+
+        // 5. Espera 100us para inicio de operacao do Sonar
+        #(100_000);
+
+        // 6. Ajustar ligar = 1
+        $display("[%0t ns] Acionando ligar = 1", $time);
+        @(negedge clock_in);
+        ligar_in = 1;
+
+        // 7. Espera 100us para inicio dos ciclos de medidas
+        #(100_000);
+
+        // 8. Loop dos casos de teste
+        for (caso = 0; caso < NUM_CASOS; caso = caso + 1) begin
+            $display("\n--- [Caso %0d] Posicao %0d: Eco esperado de %0d us ---",
+                     caso, caso, casos_eco[caso]);
+
+            // 8.1 Atribui sinal com valor do caso de teste
+            larguraPulso = casos_eco[caso] * 1000; // ns
+
+            // 8.2 Espera pelo pulso de Trigger
+            wait (trigger_out == 1'b1);
+            $display("  [%0t ns] Pulso Trigger detectado!", $time);
+            wait (trigger_out == 1'b0);
+
+            // 8.3 Espera 400us (tempo entre pulsos Trigger e Echo)
+            #(400_000);
+
+            // 8.4 Gera pulso Echo com largura definida no caso de teste
+            $display("  [%0t ns] Gerando pulso de Echo (%0d us)...", $time, casos_eco[caso]);
+            echo_in = 1;
+            #(larguraPulso);
+            echo_in = 0;
+
+            // 8.5 Espera pelo final do ciclo (fim_posicao = 1)
+            wait (fim_posicao_out == 1'b1);
+            $display("  [%0t ns] Pulso fim_posicao detectado com sucesso!", $time);
+
+            // 8.6 Espera 100us entre casos de teste
+            #(100_000);
+        end
+
+        // 9. Ajustar ligar = 0
+        $display("\n[%0t ns] Desligando sistema: ligar = 0", $time);
+        @(negedge clock_in);
+        ligar_in = 0;
+
+        // 10. Espera 100us antes de finalizar a simulacao
+        #(100_000);
+
+        // 11. Fim da simulacao
+        $display("===================================================================");
+        if (errors == 0) begin
+            $display("SUCCESS: ALL TESTBENCH CHECKS PASSED! (Todos os 8 casos concluidos)");
+        end else begin
+            $display("FAILURE: %0d error(s) detectados!", errors);
+        end
+        $display("===================================================================");
+
+        $finish;
+    end
+
+endmodule
+
+`default_nettype wire
+
