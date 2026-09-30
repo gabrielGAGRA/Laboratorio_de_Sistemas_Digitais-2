@@ -1,25 +1,3 @@
-Listed directory EXP5
-Listed directory Planejamento
-Viewed rom_angulos_8x24.v:1-30
-Viewed testbench-sonar.txt:1-25
-Listed directory Laborat%C3%B3rios
-Listed directory EXP3
-Listed directory Planejamento
-Listed directory EXP4
-Listed directory Relat%C3%B3rio
-Listed directory EXP2
-Listed directory Planejamento
-Listed directory EXP1
-Listed directory Relat%C3%B3rio
-Viewed circuito_pwm.v:1-65
-Searched for "controle_servo"
-Viewed controle_servo_tb.v:1-81
-Viewed interface_hcsr04.v:1-66
-Viewed tx_serial_7E1.v:1-87
-Viewed exp4_desafio.v:1-138
-Viewed exp4_desafio_fd.v:1-108
-Viewed SKILL.md:1-27
-
 # Plan: Sistema de Sonar - Planejamento EXP5
 
 ## Goal
@@ -197,13 +175,128 @@ Trabalharemos em fatias verticais, validando cada módulo individualmente antes 
 - **Incompatibilidade com o Sketch Processing**: O software Processing espera 8 caracteres ASCII na taxa 115200 7E1.
   *Mitigação*: Validar o framing no testbench bit a bit antes de ir para a bancada.
 
-## Migration and Rollout
+---
 
-1. Obter sua aprovação formal sobre este plano de arquitetura.
-2. Copiar e refatorar os arquivos base de `EXP1`, `EXP2` e `EXP4` diretamente para `Laboratórios/EXP5/Planejamento`.
-3. Implementar e testar `controle_servo_8`, `tx_serial_7E1` e `interface_hcsr04`.
-4. Implementar e simular `transmissor_sonar`.
-5. Implementar `sonar_uc`, `sonar_fd`, `sonar` e `exp5_sonar`.
-6. Simular o sistema completo com `sonar_tb.v` e coletar formas de onda para o relatório.
+# Plano de Refatoração: Sistema de Sonar - Revisão e Aprimoramentos EXP5
 
-Solicito sua avaliação e aprovação para prosseguirmos com a implementação deste plano.
+## 1. Goal
+
+Atender integralmente às diretrizes de revisão técnica do Sistema de Sonar em [Laboratórios/EXP5/Relatório](file:///home/gabri/POLI/Laboratorio_de_Sistemas_Digitais/2/Laborat%C3%B3rios/EXP5/Relat%C3%B3rio):
+1. **Detecção de Timeout por Perda de Eco**: Implementar temporizador de *watchdog* no circuito [interface_hcsr04.v](file:///home/gabri/POLI/Laboratorio_de_Sistemas_Digitais/2/Laborat%C3%B3rios/EXP5/Relat%C3%B3rio/interface_hcsr04.v) para prevenir travamento do sonar quando o eco for perdido ou o sensor desconectado, retornando o valor sentinela `999` cm BCD (`12'h999`) e emitindo o pulso `pronto`.
+2. **Multiplexação dos Displays de 7 Segmentos**: Incorporar a chave `SW[2]` (`chave_depuracao`) em [exp5_sonar.v](file:///home/gabri/POLI/Laboratorio_de_Sistemas_Digitais/2/Laborat%C3%B3rios/EXP5/Relat%C3%B3rio/exp5_sonar.v) para alternar entre:
+   - **Modo Funcional (`chave_depuracao = 0`)**: HEX5-HEX3 exibem o ângulo em graus (020° a 160°) e HEX2-HEX0 exibem a distância medida em cm.
+   - **Modo Depuração (`chave_depuracao = 1`)**: HEX5 exibe o estado atual da FSM principal, HEX4 exibe a posição atual do servo (0 a 7), HEX3 apagado e HEX2-HEX0 exibem a distância medida em cm.
+3. **Dupla Sincronização Modular**: Modularizar a sincronização de sinais externos assíncronos (`echo`, `ligar` e `reset`) através de instâncias dedicadas de um módulo sincronizador de 2 flip-flops ([sincronizador.v](file:///home/gabri/POLI/Laboratorio_de_Sistemas_Digitais/2/Laborat%C3%B3rios/EXP5/Relat%C3%B3rio/sincronizador.v)), eliminando lógica inline.
+4. **Análise Técnica de Debounce**: Avaliar e fundamentar formalmente a não necessidade de um módulo de debounce em hardware para a chave deslizante `SW[1]` (`ligar`), considerando a dinâmica de repouso mecânico de 2,0 segundos do servomotor.
+
+---
+
+## 2. Approach & Architecture
+
+### 2.1. Arquitetura do Timeout em `interface_hcsr04`
+
+- **Fluxo de Dados ([interface_hcsr04_fd.v](file:///home/gabri/POLI/Laboratorio_de_Sistemas_Digitais/2/Laborat%C3%B3rios/EXP5/Relat%C3%B3rio/interface_hcsr04_fd.v))**:
+  - Instanciar um temporizador de timeout parametrizável:
+    ```verilog
+    parameter TIMEOUT_TICKS = 1_750_000; // ~35 ms a 50 MHz
+    parameter TIMEOUT_BITS  = 21;
+    ```
+  - Contador acionado a partir do estado de disparo/espera do eco, gerando `fim_timeout`.
+  - MUX no registrador de distância ou valor sentinela: caso `timeout = 1`, carrega `12'h999` (999 cm BCD) no registrador de saída.
+- **Unidade de Controle ([interface_hcsr04_uc.v](file:///home/gabri/POLI/Laboratorio_de_Sistemas_Digitais/2/Laborat%C3%B3rios/EXP5/Relat%C3%B3rio/interface_hcsr04_uc.v))**:
+  - Em `ESPERA_ECHO`: se `echo == 1`, transita para `MEDIDA`. Se `fim_timeout == 1`, transita para o tratamento de timeout (`TIMEOUT`), carregando `12'h999`, emitindo `pronto = 1` e retornando a `INICIAL`.
+  - Em `MEDIDA`: se `fim_medida == 1`, transita para `ARMAZENAMENTO`. Se `fim_timeout == 1` (caso o eco fique preso em nível alto), também aborta e emite sentinela `999`.
+
+```mermaid
+stateDiagram-v2
+    [*] --> INICIAL
+    INICIAL --> PREPARACAO: medir = 1
+    PREPARACAO --> ENVIA_TRIGGER
+    ENVIA_TRIGGER --> ESPERA_ECHO
+    ESPERA_ECHO --> MEDIDA: echo = 1
+    ESPERA_ECHO --> TIMEOUT: fim_timeout = 1
+    MEDIDA --> ARMAZENAMENTO: fim_medida = 1
+    MEDIDA --> TIMEOUT: fim_timeout = 1
+    ARMAZENAMENTO --> FINAL_MEDIDA
+    TIMEOUT --> FINAL_MEDIDA
+    FINAL_MEDIDA --> INICIAL: pronto = 1
+```
+
+### 2.2. Multiplexação dos Displays em `exp5_sonar.v`
+
+- **Nova porta de entrada**:
+  ```verilog
+  input wire chave_depuracao // SW[2]
+  ```
+- **Conexão com `sonar.v`**:
+  - Expor a porta `output wire [23:0] db_angulo` de [sonar.v](file:///home/gabri/POLI/Laboratorio_de_Sistemas_Digitais/2/Laborat%C3%B3rios/EXP5/Relat%C3%B3rio/sonar.v) (conectada internamente à ROM de ângulos em `sonar_fd.v`).
+- **Decodificação de Ângulo (Graus BCD)**:
+  - `angulo_c = db_angulo[19:16]` (Centena: '0' ou '1')
+  - `angulo_d = db_angulo[11:8]`  (Dezena: '2', '4', '6', '8', ...)
+  - `angulo_u = db_angulo[3:0]`   (Unidade: '0')
+- **Lógica de Multiplexação**:
+  - Se `chave_depuracao == 1'b0`:
+    - `HEX5` $\leftarrow$ `angulo_c` (Decodificado via `hexa7seg`)
+    - `HEX4` $\leftarrow$ `angulo_d` (Decodificado via `hexa7seg`)
+    - `HEX3` $\leftarrow$ `angulo_u` (Decodificado via `hexa7seg`)
+  - Se `chave_depuracao == 1'b1`:
+    - `HEX5` $\leftarrow$ `{1'b0, s_estado}` (Decodificado via `hexa7seg`)
+    - `HEX4` $\leftarrow$ `{2'b00, s_posicao}` (Decodificado via `hexa7seg`)
+    - `HEX3` $\leftarrow$ `7'b1111111` (Apagado)
+  - `HEX2`, `HEX1`, `HEX0` sempre decodificam `s_medida[11:8]`, `s_medida[7:4]`, `s_medida[3:0]` (distância em cm).
+
+### 2.3. Módulo de Sincronização Modular (`sincronizador.v`)
+
+- Criação de componente reutilizável em conformidade com as regras de engenharia de software e linting:
+  ```verilog
+  module sincronizador #(
+      parameter WIDTH = 1
+  )(
+      input  wire             clock,
+      input  wire             reset,
+      input  wire [WIDTH-1:0] async_in,
+      output reg  [WIDTH-1:0] sync_out
+  );
+  ```
+- Instanciado no top-level `exp5_sonar.v` para:
+  1. `u_sync_reset`: Sincronizador de 2 FFs para desasserção síncrona do `reset`.
+  2. `u_sync_ligar`: Sincronizador de 2 FFs para a chave `ligar` (`SW[1]`).
+  3. `u_sync_echo`: Sincronizador de 2 FFs para o sinal assíncrono `echo` do HC-SR04.
+
+### 2.4. Avaliação Técnica de Debounce para a Chave `ligar`
+
+- **Análise Física e Temporal**:
+  - Chaves mecânicas deslizantes (como as da série `SW` da DE0-CV) apresentam *bouncing* com duração típica entre $1\text{ ms}$ e $5\text{ ms}$.
+  - Na FSM [sonar_uc.v](file:///home/gabri/POLI/Laboratorio_de_Sistemas_Digitais/2/Laborat%C3%B3rios/EXP5/Relat%C3%B3rio/sonar_uc.v), ao ligar o sistema (`ligar = 1`), a máquina transita para `STATE_PREPARA_SERVO` e logo em seguida para `STATE_ESPERA_TIMER`, onde permanece por **2,0 segundos** ($100.000.000$ ciclos de clock a 50 MHz).
+  - Como a chave `ligar` é mantida continuamente no nível alto (estática) e a sincronização em 2 estágios elimina metaestabilidade, o transitório inicial de repique é irrelevante frente à janela de repouso de 2 segundos.
+  - Conclusão: a inclusão de um módulo de debounce em hardware para `ligar` é desnecessária e adicionaria custo de ALMs sem benefício funcional.
+
+---
+
+## 3. Vertical Slices & TDD Verification
+
+1. **Fatia 1: Módulo `sincronizador.v`**
+   - Criar `sincronizador.v` com parametrização de largura.
+   - Validar com simulação e lint.
+2. **Fatia 2: Timeout em `interface_hcsr04`**
+   - Ajustar `interface_hcsr04_uc.v`, `interface_hcsr04_fd.v` e `interface_hcsr04.v`.
+   - Adicionar caso de teste de timeout em [interface_hcsr04_tb.v](file:///home/gabri/POLI/Laboratorio_de_Sistemas_Digitais/2/Laborat%C3%B3rios/EXP5/Relat%C3%B3rio/interface_hcsr04_tb.v) (medir sem eco $\to$ espera `pronto = 1` e `medida = 12'h999`).
+   - Simular até status **PASS**.
+3. **Fatia 3: Integração no Sonar e Resiliência a Perda de Eco**
+   - Atualizar [sonar_tb.v](file:///home/gabri/POLI/Laboratorio_de_Sistemas_Digitais/2/Laborat%C3%B3rios/EXP5/Relat%C3%B3rio/sonar_tb.v) incluindo caso de eco ausente.
+   - Verificar envio do pacote serial com `999` e continuidade da varredura angular sem interrupção.
+4. **Fatia 4: Top-Level `exp5_sonar.v` e Testbench**
+   - Integrar `chave_depuracao` (`SW[2]`), multiplexação de `HEX5..HEX3` e sincronizadores modulares.
+   - Atualizar [exp5_sonar_tb.v](file:///home/gabri/POLI/Laboratorio_de_Sistemas_Digitais/2/Laborat%C3%B3rios/EXP5/Relat%C3%B3rio/exp5_sonar_tb.v) para verificar alternância de displays nos modos funcional e depuração.
+5. **Fatia 5: Quality Gate & Linting**
+   - Executar `python scripts/lint_verilog.py` em todos os arquivos modificados.
+
+---
+
+## 4. Risks & Mitigations
+
+- **Tempo Excessivo do Timeout em Simulação**: Se o timeout for de 35 ms (1.750.000 ciclos), testbenches ficariam lentos.
+  - *Mitigação*: Parametrizar `TIMEOUT_TICKS` na `interface_hcsr04` para permitir redução para valores curtos (ex.: 5.000 a 50.000 ciclos) durante simulações rápidas.
+- **Conflito de Pinos na DE0-CV**:
+  - `SW[2]` corresponde ao pino físico `W12` do Cyclone V (5CEBA4F23C7), livre e imediatamente adjacente a `SW[1]` (`V13`) e `SW[0]` (`U13`).
+

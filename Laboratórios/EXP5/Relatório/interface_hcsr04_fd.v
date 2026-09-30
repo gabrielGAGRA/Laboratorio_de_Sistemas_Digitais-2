@@ -14,7 +14,7 @@
 `default_nettype none
 
 module interface_hcsr04_fd #(
-    parameter TIMEOUT_TICKS = 1_750_000, // ~35 ms a 50 MHz
+    parameter TIMEOUT_TICKS = 50_000_000, // ~1 s a 50 MHz
     parameter TIMEOUT_BITS  = 21
 )(
     input  wire        clock,

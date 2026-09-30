@@ -142,7 +142,7 @@ module sonar_uc (
 
         case (estado_q)
             STATE_INICIAL: begin
-                zera_posicao = 1'b1;
+                zera_posicao = 1'b0; // Mantem a posicao angular ao desativar a chave ligar
                 zera_timer   = 1'b1;
             end
 
