@@ -144,16 +144,16 @@ module sonar_tb;
         ligar_in = 1'b1;
 
         // Aguarda 2 avancos de posicao no Modo 0
-        @(posedge fim_posicao_out);
+        @(negedge fim_posicao_out);
         $display("  Posicao avancada para: %0d, db_modo = %0b", db_posicao_out, db_modo_out);
         if (db_modo_out !== 1'b0) begin
             $display("  ERRO: db_modo esperado=0, obtido=%0b", db_modo_out);
             erros = erros + 1;
         end
 
-        @(posedge fim_posicao_out);
+        @(negedge fim_posicao_out);
         posicao_salva = db_posicao_out;
-        $display("  Posicao avancada para: %0d, db_modo = %0b", posicao_salva, db_modo_out);
+        $display("  Posicao congelada salva em: %0d, db_modo = %0b", posicao_salva, db_modo_out);
 
         // 3. Envio serial do comando 'a' (Atencao: 0x61, paridade 1 -> 0xE1)
         $display("[Etapa 2] Enviando comando 'a' (Atencao)...");
@@ -217,7 +217,7 @@ module sonar_tb;
 
         // 8. Verificacao de que o avanco de posicao e retomado a partir da posicao salva
         $display("[Etapa 7] Verificando retomada do avanco angular...");
-        @(posedge fim_posicao_out);
+        @(negedge fim_posicao_out);
         $display("  Posicao avancou para: %0d", db_posicao_out);
 
         if (db_posicao_out !== ((posicao_salva + 1) % 8)) begin
