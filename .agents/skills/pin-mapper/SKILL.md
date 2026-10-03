@@ -16,8 +16,11 @@ A CSV file contains all physical pin definitions:
 
 ## 2. Usage
 
-### From a Top-Level Verilog File
-Automatically parses ports, expands buses (`hex0[0..6]`, `ledr[0..9]`), sorts alphabetically, and prints only the `PIN_...` column:
+### Output Format Requirement
+Always provide pinouts in **plain text** (one `PIN_...` assignment per line), sorted **alphabetically by variable/node name**, ready to be copied and pasted directly into the *Location* column of Quartus Prime Pin Planner.
+
+### Executing via Script
+Automatically extracts top-level ports, expands buses (`hex0[0..6]`, `ledr[0..9]`), sorts them alphabetically, and prints exclusively the `PIN_...` column:
 
 ```bash
 python .agents/skills/pin-mapper/scripts/pin_mapper.py \
